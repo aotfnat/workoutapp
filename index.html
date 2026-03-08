@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fitness App PWA</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="styles.css">
+    <meta name="theme-color" content="#ffffff">
+    <!-- iOS support -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-title" content="Fitness App">
+    <link rel="apple-touch-icon" href="icons/icon-192x192.png">
+</head>
+<body>
+    <div id="app">
+        <header>
+            <h1>Fitness App</h1>
+            <nav>
+                <button onclick="showSection('plan')">Weekly Plan</button>
+                <button onclick="showSection('workout')">Start Workout</button>
+                <button onclick="showSection('progress')">Progress</button>
+            </nav>
+        </header>
+        
+        <section id="plan-section">
+            <h2>Weekly Workout Plan</h2>
+            <div id="weekly-plan"></div>
+            <button onclick="addDay()">Add Day</button>
+            <button onclick="savePlan()">Save Plan</button>
+        </section>
+        
+        <section id="workout-section" style="display: none;">
+            <h2>Workout Session</h2>
+            <select id="day-select" onchange="loadDayWorkout()">
+                <!-- Options populated dynamically -->
+            </select>
+            <div id="exercise-list"></div>
+            <div id="timer">Rest Timer: 00:00</div>
+            <button id="start-timer" onclick="startRestTimer()">Start Rest Timer</button>
+            <div id="lapsed-time">Lapsed Time: 00:00</div>
+            <button onclick="completeWorkout()">Complete Workout</button>
+        </section>
+        
+        <section id="progress-section" style="display: none;">
+            <h2>Progress Tracking</h2>
+            <div id="progress-log"></div>
+            <canvas id="progress-chart" width="400" height="200"></canvas>
+        </section>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="app.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/service-worker.js')
+                .then(reg => console.log('Service Worker registered', reg))
+                .catch(err => console.log('Service Worker registration failed', err));
+        }
+    </script>
+</body>
+</html>
