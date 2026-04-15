@@ -4,16 +4,41 @@ let progressLogs = JSON.parse(localStorage.getItem('progressLogs')) || [];
 let currentWorkout = [];
 let currentExerciseIndex = 0;
 let currentSet = 1;
-let restTimerInterval;
 let lapsedTimerInterval;
 let lapsedTime = 0;
+let restTimeRemaining = 60;      // current countdown in seconds
+let restTimerRunning = false;
+let restTimerInterval = null;
+let selectedRestDuration = 60;   // default
 
-function showSection(section) {
-    document.querySelectorAll('section').forEach(sec => sec.style.display = 'none');
-    document.getElementById(`${section}-section`).style.display = 'block';
-    if (section === 'plan') loadPlan();
-    if (section === 'workout') loadDayOptions();
-    if (section === 'progress') loadProgress();
+// Tab system
+function initTabs() {
+    const tabButtons = document.querySelectorAll('.tab-button');
+    
+    tabButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            // Remove active from all buttons and contents
+            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+
+            // Activate selected tab
+            button.classList.add('active');
+            const tabId = button.getAttribute('data-tab');
+            document.getElementById(`${tabId}-section`).classList.add('active');
+
+            // Load content when switching tabs
+            if (tabId === 'plan') loadPlan();
+            if (tabId === 'workout') loadDayOptions();
+            if (tabId === 'progress') loadProgress();
+            // Calendar tab can be expanded later
+        });
+    });
+}
+
+function loadSimpleCalendar() {
+    const today = new Date();
+    document.getElementById('today-date').textContent = today.toLocaleDateString();
+    // You can build a full mini calendar here later
 }
 
 function loadPlan() {
@@ -24,14 +49,25 @@ function loadPlan() {
         dayDiv.className = 'day';
         dayDiv.innerHTML = `<h3>${day}</h3>`;
         weeklyPlan[day].forEach((ex, idx) => {
-            dayDiv.innerHTML += `
-                <div class="exercise">
-                    <input type="text" value="${ex.name}" onchange="updateExercise('${day}', ${idx}, 'name', this.value)">
-                    Sets: <input type="number" value="${ex.sets}" onchange="updateExercise('${day}', ${idx}, 'sets', this.value)">
-                    Reps: <input type="number" value="${ex.reps}" onchange="updateExercise('${day}', ${idx}, 'reps', this.value)">
-                    <button onclick="removeExercise('${day}', ${idx})">Remove</button>
-                </div>
-            `;
+          const unitLabel = {
+            reps:    'reps',
+            seconds: 'seconds',
+            minutes: 'min',
+            meters:  'm'
+          }[ex.unit] || 'reps';
+
+          dayDiv.innerHTML += `
+            <div class="exercise">
+              <input type="text" value="${ex.name}" onchange="updateExercise('${day}', ${idx}, 'name', this.value)">
+            
+              Sets: <input type="number" min="1" value="${ex.sets}" onchange="updateExercise('${day}', ${idx}, 'sets', this.value)">
+            
+              Target: <input type="number" min="1" value="${ex.target}" onchange="updateExercise('${day}', ${idx}, 'target', this.value)">
+            ${unitLabel}
+            
+              <button onclick="removeExercise('${day}', ${idx})">Remove</button>
+            </div>
+    `     ;
         });
         dayDiv.innerHTML += `<button onclick="addExercise('${day}')">Add Exercise</button>
                               <button onclick="removeDay('${day}')">Remove Day</button>`;
@@ -48,15 +84,59 @@ function addDay() {
 }
 
 function addExercise(day) {
-    const name = prompt('Exercise name:');
-    const sets = prompt('Sets:', 3);
-    const reps = prompt('Reps:', 10);
-    weeklyPlan[day].push({ name, sets: parseInt(sets), reps: parseInt(reps), weights: [] });
+    const name = prompt('Exercise name:')?.trim();
+    if (!name) return;
+
+    const unit = prompt(
+        'Unit for this exercise?\n' +
+        '1 = reps\n' +
+        '2 = seconds\n' +
+        '3 = minutes\n' +
+        '4 = meters\n' +
+        'Enter number (1-4):'
+    );
+
+    let selectedUnit;
+    switch (unit?.trim()) {
+        case '1': selectedUnit = 'reps';    break;
+        case '2': selectedUnit = 'seconds'; break;
+        case '3': selectedUnit = 'minutes'; break;
+        case '4': selectedUnit = 'meters';  break;
+        default:
+            alert("Invalid choice → defaulting to 'reps'");
+            selectedUnit = 'reps';
+    }
+
+    let targetValue;
+    if (selectedUnit === 'reps') {
+        targetValue = parseInt(prompt('Target reps:', '10')) || 10;
+    } else if (selectedUnit === 'seconds') {
+        targetValue = parseInt(prompt('Target seconds:', '30')) || 30;
+    } else if (selectedUnit === 'minutes') {
+        targetValue = parseInt(prompt('Target minutes:', '3')) || 3;
+    } else { // meters
+        targetValue = parseInt(prompt('Target meters:', '400')) || 400;
+    }
+
+    // For reps we usually also ask sets — others can still have sets too (e.g. 3×30s planks)
+    const sets = parseInt(prompt('Number of sets:', '3')) || 3;
+
+    weeklyPlan[day].push({
+        name,
+        sets,
+        target: targetValue,          // renamed from "reps"
+        unit: selectedUnit,
+        weights: []                   // still useful for weighted exercises
+    });
+
     loadPlan();
+    savePlan(); // optional: auto-save after adding
 }
 
 function updateExercise(day, idx, field, value) {
-    if (field === 'sets' || field === 'reps') value = parseInt(value);
+    if (field === 'sets' || field === 'target') {
+        value = parseInt(value) || 0;
+    }
     weeklyPlan[day][idx][field] = value;
 }
 
@@ -105,43 +185,140 @@ function loadDayWorkout() {
 function renderExercise() {
     const list = document.getElementById('exercise-list');
     list.innerHTML = '';
+
     if (currentExerciseIndex >= currentWorkout.length) {
         list.innerHTML = '<p>Workout Complete!</p>';
         clearInterval(lapsedTimerInterval);
         return;
     }
+
     const ex = currentWorkout[currentExerciseIndex];
+
+    let goalText = '';
+    if (ex.unit === 'reps') {
+        goalText = `Reps: ${ex.target}`;
+    } else if (ex.unit === 'seconds') {
+        goalText = `Time: ${ex.target} seconds`;
+    } else if (ex.unit === 'minutes') {
+        goalText = `Time: ${ex.target} min`;
+    } else if (ex.unit === 'meters') {
+        goalText = `Distance: ${ex.target} m`;
+    } else {
+        goalText = `Target: ${ex.target}`;
+    }
+
     list.innerHTML = `
-        <h3>${ex.name} - Set ${currentSet}/${ex.sets}</h3>
-        <p>Reps: ${ex.reps}</p>
-        <label>Weight: <input type="number" id="weight-input" value="${ex.weights[currentSet-1]}"></label>
-        <button onclick="nextSet()">Next Set</button>
+        <h3>${ex.name} – Set ${currentSet}/${ex.sets}</h3>
+        <p>${goalText}</p>
+        <label>Weight (kg/lb): <input type="number" step="0.5" id="weight-input" value="${ex.weights[currentSet-1] || ''}"></label>
+        <button onclick="nextSet()">Next Set / Done</button>
     `;
 }
 
 function nextSet() {
     const ex = currentWorkout[currentExerciseIndex];
-    ex.weights[currentSet-1] = parseFloat(document.getElementById('weight-input').value) || 0;
+    ex.weights[currentSet-1] = parseFloat(document.getElementById('weight-input')?.value) || 0;
+
     if (currentSet < ex.sets) {
         currentSet++;
     } else {
         currentExerciseIndex++;
         currentSet = 1;
     }
-    startRestTimer();
+
     renderExercise();
+    prepareNextRest();          // ← added
+    // startRestTimer();        // ← if you want auto-start
+}
+
+// Call this inside renderExercise() or after nextSet()
+function prepareNextRest() {
+    resetRestTimer();           // reset to selected duration
+    // Optionally auto-start:
+    // startRestTimer();
+}
+
+
+// ────────────────────────────────────────────────
+// Timer control functions
+// ────────────────────────────────────────────────
+
+function updateTimerDisplay() {
+    document.getElementById('timer').textContent = formatTime(restTimeRemaining);
 }
 
 function startRestTimer() {
-    let time = 60; // 60 seconds rest
-    document.getElementById('timer').textContent = `Rest Timer: ${formatTime(time)}`;
-    clearInterval(restTimerInterval);
+    if (restTimerRunning) return;
+
+    // Read selected duration
+    const select = document.getElementById('rest-duration-select');
+    const customInput = document.getElementById('custom-rest-seconds');
+
+    if (select.value === 'custom') {
+        const customVal = parseInt(customInput.value);
+        if (isNaN(customVal) || customVal < 10) {
+            alert("Please enter a valid number (10–300 seconds)");
+            return;
+        }
+        selectedRestDuration = customVal;
+    } else {
+        selectedRestDuration = parseInt(select.value);
+    }
+
+    restTimeRemaining = selectedRestDuration;
+    updateTimerDisplay();
+
+    restTimerRunning = true;
+    document.getElementById('timer-start').disabled = true;
+    document.getElementById('timer-stop').disabled = false;
+
     restTimerInterval = setInterval(() => {
-        time--;
-        document.getElementById('timer').textContent = `Rest Timer: ${formatTime(time)}`;
-        if (time <= 0) clearInterval(restTimerInterval);
+        restTimeRemaining--;
+        updateTimerDisplay();
+
+        if (restTimeRemaining <= 0) {
+            clearInterval(restTimerInterval);
+            restTimerRunning = false;
+            document.getElementById('timer-start').disabled = false;
+            document.getElementById('timer-stop').disabled = true;
+            // Optional: play sound or vibrate
+            // new Audio('https://assets.mixkit.co/sfx/preview/mixkit-alarm-clock-beep-988.mp3').play();
+        }
     }, 1000);
 }
+
+function stopRestTimer() {
+    if (!restTimerRunning) return;
+    clearInterval(restTimerInterval);
+    restTimerRunning = false;
+    document.getElementById('timer-start').disabled = false;
+    document.getElementById('timer-stop').disabled = true;
+}
+
+function resetRestTimer() {
+    stopRestTimer();
+    restTimeRemaining = selectedRestDuration;
+    updateTimerDisplay();
+}
+
+// Show/hide custom input
+document.getElementById('rest-duration-select').addEventListener('change', function() {
+    const customInput = document.getElementById('custom-rest-seconds');
+    customInput.style.display = this.value === 'custom' ? 'inline' : 'none';
+    if (this.value !== 'custom') {
+        selectedRestDuration = parseInt(this.value);
+        resetRestTimer();
+    }
+});
+
+// Update when custom value changes
+document.getElementById('custom-rest-seconds').addEventListener('change', function() {
+    const val = parseInt(this.value);
+    if (!isNaN(val) && val >= 10 && val <= 300) {
+        selectedRestDuration = val;
+        resetRestTimer();
+    }
+});
 
 function formatTime(seconds) {
     const mins = Math.floor(seconds / 60);
@@ -159,7 +336,6 @@ function completeWorkout() {
     });
     localStorage.setItem('progressLogs', JSON.stringify(progressLogs));
     alert('Workout completed and logged!');
-    showSection('progress');
 }
 
 function loadProgress() {
@@ -210,5 +386,9 @@ function getRandomColor() {
     return `#${Math.floor(Math.random()*16777215).toString(16)}`;
 }
 
-// Initial load
-showSection('plan');
+document.addEventListener('DOMContentLoaded', () => {
+    initTabs();
+    
+    // Start on Plan tab
+    document.querySelector('[data-tab="plan"]').click();
+});
