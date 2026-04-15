@@ -14,41 +14,85 @@
     <link rel="apple-touch-icon" href="icons/icon-192x192.png">
 </head>
 <body>
-    <div id="app">
+<div id="app">
+    <!-- Main Content Area -->
+    <main class="content-area">
         <header>
-            <h1>Fitness App</h1>
-            <nav>
-                <button onclick="showSection('plan')">Weekly Plan</button>
-                <button onclick="showSection('workout')">Start Workout</button>
-                <button onclick="showSection('progress')">Progress</button>
-            </nav>
+            <h1>💪 Fitness App</h1>
         </header>
-        
-        <section id="plan-section">
-            <h2>Weekly Workout Plan</h2>
+
+        <!-- Tab Contents -->
+        <div id="calendar-section" class="tab-content active">
+            <h2>📅 Calendar</h2>
+            <div id="calendar-view">
+                <p>Upcoming workouts and history will appear here.</p>
+            </div>
+        </div>
+
+        <div id="plan-section" class="tab-content">
+            <h2>📋 Weekly Workout Plan</h2>
             <div id="weekly-plan"></div>
             <button onclick="addDay()">Add Day</button>
             <button onclick="savePlan()">Save Plan</button>
-        </section>
-        
-        <section id="workout-section" style="display: none;">
-            <h2>Workout Session</h2>
-            <select id="day-select" onchange="loadDayWorkout()">
-                <!-- Options populated dynamically -->
-            </select>
+        </div>
+
+        <div id="workout-section" class="tab-content">
+            <h2>🏋️‍♂️ Active Workout</h2>
+            <select id="day-select" onchange="loadDayWorkout()"></select>
+            
+            <div id="timer-controls" style="margin: 15px 0;">
+                <label>Rest timer: 
+                    <select id="rest-duration-select">
+                        <option value="30">30s</option>
+                        <option value="45">45s</option>
+                        <option value="60" selected>60s</option>
+                        <option value="90">90s</option>
+                        <option value="120">120s</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                </label>
+                <input type="number" id="custom-rest-seconds" placeholder="seconds" style="display:none; width:80px;" min="10">
+                
+                <div style="margin-top: 8px;">
+                    <button id="timer-start" onclick="startRestTimer()">Start Rest</button>
+                    <button id="timer-stop" onclick="stopRestTimer()" disabled>Stop</button>
+                    <button id="timer-reset" onclick="resetRestTimer()">Reset</button>
+                </div>
+            </div>
+
+            <div id="timer" style="font-size: 42px; font-weight: bold; margin: 15px 0; color: #2196F3;">
+                00:00
+            </div>
+
             <div id="exercise-list"></div>
-            <div id="timer">Rest Timer: 00:00</div>
-            <button id="start-timer" onclick="startRestTimer()">Start Rest Timer</button>
-            <div id="lapsed-time">Lapsed Time: 00:00</div>
-            <button onclick="completeWorkout()">Complete Workout</button>
-        </section>
-        
-        <section id="progress-section" style="display: none;">
-            <h2>Progress Tracking</h2>
+            <div id="lapsed-time">Session time: 00:00</div>
+            
+            <button onclick="completeWorkout()" style="margin-top: 20px;">✅ Complete Workout</button>
+        </div>
+
+        <div id="progress-section" class="tab-content">
+            <h2>📈 Progress Tracking</h2>
             <div id="progress-log"></div>
-            <canvas id="progress-chart" width="400" height="200"></canvas>
-        </section>
-    </div>
+            <canvas id="progress-chart" width="400" height="250"></canvas>
+        </div>
+    </main>
+
+    <!-- Bottom Tab Navigation -->
+    <nav class="bottom-tabs">
+        <button class="tab-button active" data-tab="calendar">
+            📅<br><span>Calendar</span>
+        </button>
+        <button class="tab-button" data-tab="plan">
+            📋<br><span>Plan</span>
+        </button>
+        <button class="tab-button" data-tab="workout">
+            🏋️<br><span>Workout</span>
+        </button>
+        <button class="tab-button" data-tab="progress">
+            📈<br><span>Progress</span>
+        </button>
+    </nav>
+</div>
     
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="app.js"></script>
