@@ -1,5 +1,5 @@
 // service-worker.js
-const CACHE_NAME = 'fitness-app-v1';
+const CACHE_NAME = 'fitness-app-v2';
 const urlsToCache = [
     '/',
     '/index.html',
