@@ -1,62 +1,107 @@
-/* styles.css */
-body {
-    font-family: Arial, sans-serif;
-    margin: 0;
-    padding: 0;
-    background-color: #f4f4f4;
-}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fitness App PWA</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="styles.css">
+    <meta name="theme-color" content="#ffffff">
+    <!-- iOS support -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-title" content="Fitness App">
+    <link rel="apple-touch-icon" href="icons/icon-192x192.png">
+</head>
+<body>
+<div id="app">
+    <!-- Main Content Area -->
+    <main class="content-area">
+        <header>
+            <h1>💪 Fitness App</h1>
+        </header>
 
-header {
-    background-color: #333;
-    color: white;
-    padding: 10px;
-    text-align: center;
-}
+        <!-- Tab Contents -->
+        <div id="calendar-section" class="tab-content active">
+            <h2>📅 Calendar</h2>
+            <div id="calendar-view">
+                <p>Upcoming workouts and history will appear here.</p>
+            </div>
+        </div>
 
-nav button {
-    margin: 5px;
-    padding: 10px;
-    background-color: #4CAF50;
-    color: white;
-    border: none;
-    cursor: pointer;
-}
+        <div id="plan-section" class="tab-content">
+            <h2>📋 Weekly Workout Plan</h2>
+            <div id="weekly-plan"></div>
+            <button onclick="addDay()">Add Day</button>
+            <button onclick="savePlan()">Save Plan</button>
+        </div>
 
-section {
-    padding: 20px;
-}
+        <div id="workout-section" class="tab-content">
+            <h2>🏋️‍♂️ Active Workout</h2>
+            <select id="day-select" onchange="loadDayWorkout()"></select>
+            
+            <div id="timer-controls" style="margin: 15px 0;">
+                <label>Rest timer: 
+                    <select id="rest-duration-select">
+                        <option value="30">30s</option>
+                        <option value="45">45s</option>
+                        <option value="60" selected>60s</option>
+                        <option value="90">90s</option>
+                        <option value="120">120s</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                </label>
+                <input type="number" id="custom-rest-seconds" placeholder="seconds" style="display:none; width:80px;" min="10">
+                
+                <div style="margin-top: 8px;">
+                    <button id="timer-start" onclick="startRestTimer()">Start Rest</button>
+                    <button id="timer-stop" onclick="stopRestTimer()" disabled>Stop</button>
+                    <button id="timer-reset" onclick="resetRestTimer()">Reset</button>
+                </div>
+            </div>
 
-#weekly-plan {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 10px;
-}
+            <div id="timer" style="font-size: 42px; font-weight: bold; margin: 15px 0; color: #2196F3;">
+                00:00
+            </div>
 
-.day {
-    background-color: white;
-    padding: 10px;
-    border: 1px solid #ddd;
-    border-radius: 5px;
-}
+            <div id="exercise-list"></div>
+            <div id="lapsed-time">Session time: 00:00</div>
+            
+            <button onclick="completeWorkout()" style="margin-top: 20px;">✅ Complete Workout</button>
+        </div>
 
-.exercise {
-    margin: 10px 0;
-}
+        <div id="progress-section" class="tab-content">
+            <h2>📈 Progress Tracking</h2>
+            <div id="progress-log"></div>
+            <canvas id="progress-chart" width="400" height="250"></canvas>
+        </div>
+    </main>
 
-#timer, #lapsed-time {
-    font-size: 24px;
-    margin: 10px 0;
-}
-
-button {
-    padding: 10px;
-    background-color: #2196F3;
-    color: white;
-    border: none;
-    cursor: pointer;
-    margin: 5px;
-}
-
-button:hover {
-    background-color: #0b7dda;
-}
+    <!-- Bottom Tab Navigation -->
+    <nav class="bottom-tabs">
+        <button class="tab-button active" data-tab="calendar">
+            📅<br><span>Calendar</span>
+        </button>
+        <button class="tab-button" data-tab="plan">
+            📋<br><span>Plan</span>
+        </button>
+        <button class="tab-button" data-tab="workout">
+            🏋️<br><span>Workout</span>
+        </button>
+        <button class="tab-button" data-tab="progress">
+            📈<br><span>Progress</span>
+        </button>
+    </nav>
+</div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="app.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/service-worker.js')
+                .then(reg => console.log('Service Worker registered', reg))
+                .catch(err => console.log('Service Worker registration failed', err));
+        }
+    </script>
+</body>
+</html>
