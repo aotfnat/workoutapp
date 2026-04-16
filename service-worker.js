@@ -1,10 +1,10 @@
 // service-worker.js
 const CACHE_NAME = 'fitness-app-v1';
 const urlsToCache = [
-    'https://aotfnat.github.io/workoutapp/styles.css/',
-    'https://aotfnat.github.io/workoutapp/styles.css/index.html',
-    'https://aotfnat.github.io/workoutapp/styles.css/styles.css',
-    'https://aotfnat.github.io/workoutapp/styles.css/app.js',
+    '/',
+    '/index.html',
+    '/styles.css',
+    '/app.js',
     'https://cdn.jsdelivr.net/npm/chart.js'
 ];
 
