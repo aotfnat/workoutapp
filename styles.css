@@ -408,4 +408,17 @@ button:disabled {
     .timer-btn-row button { padding: 10px 8px; font-size: 14px; }
 
     .tab-content { padding: 10px 14px; }
+
+    /* Drawer: cap height and scroll so all items are reachable in landscape */
+    #menu-drawer {
+        max-height: 80dvh;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    .menu-item {
+        padding: 11px 16px;
+        margin-bottom: 6px;
+        font-size: 15px;
+    }
+    #menu-drawer-handle { margin-bottom: 10px; }
 }
