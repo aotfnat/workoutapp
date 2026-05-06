@@ -162,7 +162,7 @@ function loadDayWorkout() {
     clearInterval(lapsedTimerInterval);
     lapsedTimerInterval = setInterval(() => {
         lapsedTime++;
-        document.getElementById('lapsed-time').textContent = `Session time: ${formatTime(lapsedTime)}`;
+        document.getElementById('lapsed-time').textContent = formatTime(lapsedTime);
     }, 1000);
 
     renderExercise();
@@ -219,7 +219,10 @@ function prepareNextRest() {
 // ────────────────────────────────────────────────
 
 function updateTimerDisplay() {
-    document.getElementById('timer').textContent = formatTime(restTimeRemaining);
+    const el = document.getElementById('timer');
+    el.textContent = formatTime(restTimeRemaining);
+    el.classList.toggle('running', restTimerRunning && restTimeRemaining > 10);
+    el.classList.toggle('low',     restTimerRunning && restTimeRemaining <= 10);
 }
 
 function startRestTimer() {
@@ -265,6 +268,8 @@ function stopRestTimer() {
     restTimerRunning = false;
     document.getElementById('timer-start').disabled = false;
     document.getElementById('timer-stop').disabled = true;
+    const el = document.getElementById('timer');
+    el.classList.remove('running', 'low');
 }
 
 function resetRestTimer() {
