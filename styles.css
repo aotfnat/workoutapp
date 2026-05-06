@@ -521,20 +521,40 @@ button:disabled {
     text-align: center;
 }
 
-.nav-btn {
+.change-btn {
     background: #2c2c2e;
-    color: #fff;
+    color: #8e8e93;
     border: none;
     border-radius: 8px;
-    font-size: 22px;
-    font-weight: 300;
-    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 6px 12px;
     margin: 0;
     cursor: pointer;
+    white-space: nowrap;
     -webkit-tap-highlight-color: transparent;
+    flex-shrink: 0;
 }
-.nav-btn:disabled { opacity: 0.3; cursor: default; }
-.nav-btn:active   { opacity: 0.6; }
+.change-btn:active { opacity: 0.6; }
+
+/* Start Workout button — prominent, full-width, disappears on tap */
+.start-workout-btn {
+    display: block;
+    width: 100%;
+    padding: 18px;
+    margin: 0 0 16px;
+    background: #30d158;
+    color: #fff;
+    font-size: 20px;
+    font-weight: 700;
+    border: none;
+    border-radius: 14px;
+    cursor: pointer;
+    letter-spacing: 0.2px;
+    -webkit-tap-highlight-color: transparent;
+    transition: opacity 0.15s;
+}
+.start-workout-btn:active { opacity: 0.7; }
 
 .workout-complete {
     font-size: 20px;
