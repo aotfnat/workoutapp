@@ -31,23 +31,6 @@ body {
 }
 .content-area::-webkit-scrollbar { display: none; }
 
-/* ── App header ─────────────────────────────────────────────────── */
-header {
-    background-color: #1c1c1e;
-    color: #fff;
-    padding: 14px 16px;
-    text-align: center;
-    position: sticky;
-    top: 0;
-    z-index: 20;
-}
-header h1 {
-    margin: 0;
-    font-size: 20px;
-    font-weight: 700;
-    letter-spacing: -0.3px;
-}
-
 /* ── Bottom tab bar ─────────────────────────────────────────────── */
 .bottom-tabs {
     position: fixed;
@@ -356,9 +339,6 @@ button:disabled {
    reduce header and tab bar to reclaim vertical space.
    ═══════════════════════════════════════════════════════════════ */
 @media (orientation: landscape) and (max-height: 500px) {
-
-    header { padding: 8px 16px; }
-    header h1 { font-size: 17px; }
 
     .tab-button { min-height: 44px; font-size: 16px; }
     .tab-button span { display: none; }   /* hide labels, keep emoji */
