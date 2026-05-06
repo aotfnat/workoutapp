@@ -386,6 +386,164 @@ button:disabled {
 }
 .menu-item:active { opacity: 0.7; }
 
+
+/* ── Plan tab — workout cards ───────────────────────────────────── */
+.plan-empty {
+    color: #636366;
+    font-size: 15px;
+    text-align: center;
+    padding: 24px 0;
+}
+
+.workout-card {
+    background: #fff;
+    border: 1px solid #d1d1d6;
+    border-radius: 14px;
+    margin-bottom: 14px;
+    padding: 14px;
+    cursor: default;
+    transition: box-shadow 0.15s, opacity 0.15s;
+}
+.workout-card.next-workout {
+    border-color: #30d158;
+    box-shadow: 0 0 0 2px rgba(48,209,88,0.25);
+}
+.workout-card.dragging  { opacity: 0.4; }
+.workout-card.drag-over { box-shadow: 0 0 0 3px #30d158; }
+
+.workout-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+}
+
+.drag-handle {
+    font-size: 20px;
+    color: #aeaeb2;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    padding: 4px 6px;
+    line-height: 1;
+}
+.drag-handle:active { cursor: grabbing; }
+
+.workout-seq {
+    font-size: 12px;
+    font-weight: 700;
+    color: #8e8e93;
+    min-width: 24px;
+}
+
+.workout-name-input {
+    flex: 1;
+    font-size: 16px;
+    font-weight: 600;
+    color: #1c1c1e;
+    border: none;
+    border-bottom: 1px solid #d1d1d6;
+    background: transparent;
+    padding: 4px 2px;
+    min-width: 120px;
+}
+.workout-name-input:focus { outline: none; border-bottom-color: #007aff; }
+
+.next-badge {
+    font-size: 11px;
+    font-weight: 700;
+    color: #30d158;
+    background: rgba(48,209,88,0.12);
+    border-radius: 6px;
+    padding: 2px 7px;
+    white-space: nowrap;
+}
+
+.icon-btn {
+    background: none;
+    border: none;
+    font-size: 15px;
+    padding: 4px 8px;
+    border-radius: 8px;
+    margin: 0;
+    cursor: pointer;
+    color: #636366;
+}
+.icon-btn.danger { color: #ff453a; }
+.icon-btn:active { opacity: 0.5; }
+
+.exercise-list { margin-bottom: 8px; }
+
+.card-actions button {
+    font-size: 14px;
+    padding: 8px 14px;
+    background: #f2f2f7;
+    color: #007aff;
+    border-radius: 10px;
+    margin: 0;
+}
+.card-actions button:hover { background: #e5e5ea; }
+
+/* ── Workout tab — info row ─────────────────────────────────────── */
+#workout-info {
+    margin-bottom: 14px;
+}
+
+.workout-info-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #1c1c1e;
+    border-radius: 12px;
+    padding: 10px 14px;
+}
+
+.workout-info-text {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.workout-num {
+    font-size: 11px;
+    font-weight: 600;
+    color: #8e8e93;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+}
+
+.workout-name-display {
+    font-size: 18px;
+    font-weight: 700;
+    color: #fff;
+    text-align: center;
+}
+
+.nav-btn {
+    background: #2c2c2e;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 22px;
+    font-weight: 300;
+    padding: 6px 14px;
+    margin: 0;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+.nav-btn:disabled { opacity: 0.3; cursor: default; }
+.nav-btn:active   { opacity: 0.6; }
+
+.workout-complete {
+    font-size: 20px;
+    font-weight: 700;
+    text-align: center;
+    color: #30d158;
+    padding: 20px 0;
+}
+
 /* ── ═══════════════════════════════════════════════════════════════
    LANDSCAPE — iPhone rotated
    Shrink HUD numbers slightly so both clocks still fit side-by-side;
