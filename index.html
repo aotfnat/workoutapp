@@ -20,7 +20,7 @@
     <main class="content-area">
         <!-- CALENDAR -->
         <div id="calendar-section" class="tab-content active">
-            <h2>📅 Calendar</h2>
+            <h2><button class="section-menu-btn" onclick="toggleMenu()" aria-label="Menu">☰</button> 📅 Calendar</h2>
             <div id="calendar-view">
                 <p>Upcoming workouts and history will appear here.</p>
             </div>
@@ -28,7 +28,7 @@
 
         <!-- PLAN -->
         <div id="plan-section" class="tab-content">
-            <h2>📋 Weekly Workout Plan</h2>
+            <h2><button class="section-menu-btn" onclick="toggleMenu()" aria-label="Menu">☰</button> 📋 Plan</h2>
             <div id="weekly-plan"></div>
             <button onclick="addDay()">Add Day</button>
             <button onclick="savePlan()">Save Plan</button>
@@ -37,10 +37,13 @@
         <!-- WORKOUT -->
         <div id="workout-section" class="tab-content">
 
-            <!-- Sticky HUD: elapsed left, rest timer right -->
+            <!-- Sticky HUD: hamburger + elapsed (left) | rest timer (right) -->
             <div id="workout-hud">
                 <div class="hud-cell">
-                    <div class="hud-label">⏱ Elapsed</div>
+                    <div class="hud-label">
+                        <button id="menu-btn" onclick="toggleMenu()" aria-label="Open menu">☰</button>
+                        <span>⏱ Elapsed</span>
+                    </div>
                     <div id="lapsed-time" class="hud-time">00:00</div>
                 </div>
                 <div class="hud-cell hud-right">
@@ -84,18 +87,22 @@
 
         <!-- PROGRESS -->
         <div id="progress-section" class="tab-content">
-            <h2>📈 Progress Tracking</h2>
+            <h2><button class="section-menu-btn" onclick="toggleMenu()" aria-label="Menu">☰</button> 📈 Progress</h2>
             <div id="progress-log"></div>
             <canvas id="progress-chart" width="400" height="250"></canvas>
         </div>
     </main>
 
-    <nav class="bottom-tabs">
-        <button class="tab-button active" data-tab="calendar">📅<br><span>Calendar</span></button>
-        <button class="tab-button" data-tab="plan">📋<br><span>Plan</span></button>
-        <button class="tab-button" data-tab="workout">🏋️<br><span>Workout</span></button>
-        <button class="tab-button" data-tab="progress">📈<br><span>Progress</span></button>
-    </nav>
+    <!-- Slide-up navigation menu -->
+    <div id="menu-overlay" onclick="toggleMenu()"></div>
+    <div id="menu-drawer">
+        <div id="menu-drawer-handle"></div>
+        <button class="menu-item active" data-tab="calendar" onclick="switchTab('calendar')">📅  Calendar</button>
+        <button class="menu-item" data-tab="plan"     onclick="switchTab('plan')">📋  Plan</button>
+        <button class="menu-item" data-tab="workout"  onclick="switchTab('workout')">🏋️  Workout</button>
+        <button class="menu-item" data-tab="progress" onclick="switchTab('progress')">📈  Progress</button>
+    </div>
+
 </div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
