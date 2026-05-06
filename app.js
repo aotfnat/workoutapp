@@ -12,28 +12,41 @@ let restTimerInterval = null;
 let selectedRestDuration = 60;
 let chartInstance = null; // FIXED: track chart instance to avoid leaks
 
-// Tab system
-function initTabs() {
-    const tabButtons = document.querySelectorAll('.tab-button');
+// ── Navigation ──────────────────────────────────────────────────
+let currentTab = 'calendar';
 
-    tabButtons.forEach(button => {
-        button.addEventListener('click', () => {
-            // FIXED: clear session timer when leaving workout tab
-            clearInterval(lapsedTimerInterval);
+function switchTab(tabId) {
+    // Clear session timer when leaving workout tab
+    if (currentTab === 'workout') clearInterval(lapsedTimerInterval);
 
-            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+    // Update tab content visibility
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+    document.getElementById(`${tabId}-section`).classList.add('active');
 
-            button.classList.add('active');
-            const tabId = button.getAttribute('data-tab');
-            document.getElementById(`${tabId}-section`).classList.add('active');
-
-            if (tabId === 'plan') loadPlan();
-            if (tabId === 'workout') loadDayOptions();
-            if (tabId === 'progress') loadProgress();
-        });
+    // Update active state on menu items
+    document.querySelectorAll('.menu-item').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-tab') === tabId);
     });
+
+    currentTab = tabId;
+    toggleMenu(false); // close drawer
+
+    if (tabId === 'plan') loadPlan();
+    if (tabId === 'workout') loadDayOptions();
+    if (tabId === 'progress') loadProgress();
 }
+
+function toggleMenu(forceState) {
+    const overlay = document.getElementById('menu-overlay');
+    const drawer  = document.getElementById('menu-drawer');
+    const isOpen  = drawer.classList.contains('open');
+    const open    = forceState !== undefined ? forceState : !isOpen;
+    overlay.classList.toggle('open', open);
+    drawer.classList.toggle('open', open);
+}
+
+// Keep initTabs as a no-op so any legacy call doesn't crash
+function initTabs() {}
 
 function loadPlan() {
     const planDiv = document.getElementById('weekly-plan');
@@ -354,8 +367,6 @@ function getRandomColor() {
 // DOMContentLoaded — safe entry point
 // ────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-    initTabs();
-
     // FIXED: event listeners moved here so DOM elements are guaranteed to exist
     document.getElementById('rest-duration-select').addEventListener('change', function() {
         const customInput = document.getElementById('custom-rest-seconds');
@@ -378,5 +389,5 @@ document.addEventListener('DOMContentLoaded', () => {
     updateTimerDisplay();
 
     // Start on Calendar tab
-    document.querySelector('[data-tab="calendar"]').click();
+    switchTab('calendar');
 });
