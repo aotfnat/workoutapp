@@ -30,8 +30,8 @@
         <div id="plan-section" class="tab-content">
             <h2><button class="section-menu-btn" onclick="toggleMenu()" aria-label="Menu">☰</button> 📋 Plan</h2>
             <div id="weekly-plan"></div>
-            <button onclick="addDay()">Add Day</button>
-            <button onclick="savePlan()">Save Plan</button>
+            <button onclick="addWorkout()">＋ Add Workout</button>
+            <button onclick="savePlanWithAlert()">💾 Save Plan</button>
         </div>
 
         <!-- WORKOUT -->
@@ -52,11 +52,8 @@
                 </div>
             </div>
 
-            <!-- Day selector -->
-            <div class="control-row">
-                <label for="day-select">Day</label>
-                <select id="day-select" onchange="loadDayWorkout()"></select>
-            </div>
+            <!-- Current workout indicator -->
+            <div id="workout-info"></div>
 
             <!-- Rest timer controls -->
             <div id="timer-controls">
