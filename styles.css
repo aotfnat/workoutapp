@@ -190,13 +190,13 @@ button:disabled {
     margin-bottom: 4px;
 }
 
-/* THE BIG NUMBERS — readable from several feet */
+/* HUD numbers — portrait default: compact but clear */
 .hud-time {
-    font-size: 52px;
+    font-size: 38px;
     font-weight: 800;
     font-variant-numeric: tabular-nums;
     line-height: 1;
-    letter-spacing: -2px;
+    letter-spacing: -1.5px;
     color: #fff;
 }
 
@@ -347,8 +347,8 @@ button:disabled {
         padding-bottom: calc(48px + env(safe-area-inset-bottom));
     }
 
-    /* HUD numbers: still large but compact for landscape */
-    .hud-time { font-size: 38px; letter-spacing: -1.5px; }
+    /* HUD numbers: large in landscape since there's horizontal room */
+    .hud-time { font-size: 52px; letter-spacing: -2px; }
     .hud-cell { padding: 10px 16px; }
     .hud-label { font-size: 10px; }
 
