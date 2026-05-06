@@ -349,14 +349,13 @@ function loadWorkoutTab() {
     currentExerciseIndex = 0;
     currentSet = 1;
     lapsedTime = 0;
+    document.getElementById('lapsed-time').textContent = formatTime(0);
 
     clearInterval(lapsedTimerInterval);
-    lapsedTimerInterval = setInterval(() => {
-        lapsedTime++;
-        document.getElementById('lapsed-time').textContent = formatTime(lapsedTime);
-    }, 1000);
+    // Timer starts only when user taps Start Workout
 
     renderExercise();
+    showStartButton();
 }
 
 function renderWorkoutHeader() {
@@ -364,23 +363,39 @@ function renderWorkoutHeader() {
     const wo    = workoutPlan[currentWorkoutIndex];
     document.getElementById('workout-info').innerHTML = `
         <div class="workout-info-row">
-            <button class="nav-btn" onclick="nudgeWorkout(-1)" ${total <= 1 ? 'disabled' : ''}>‹</button>
             <div class="workout-info-text">
                 <span class="workout-num">${currentWorkoutIndex + 1} / ${total}</span>
                 <span class="workout-name-display">${escHtml(wo.name)}</span>
             </div>
-            <button class="nav-btn" onclick="nudgeWorkout(1)" ${total <= 1 ? 'disabled' : ''}>›</button>
+            <button class="change-btn" onclick="switchTab('plan')">Change ›</button>
         </div>
     `;
 }
 
-// Manual prev/next nudge (doesn't advance the saved index)
-function nudgeWorkout(dir) {
-    const total = workoutPlan.length;
-    currentWorkoutIndex = (currentWorkoutIndex + dir + total) % total;
-    savePlan();
-    loadWorkoutTab();
+function showStartButton() {
+    const list = document.getElementById('exercise-list');
+    // Only show if workout hasn't started yet
+    if (currentExerciseIndex === 0 && currentSet === 1 && lapsedTime === 0) {
+        const btn = document.createElement('button');
+        btn.id = 'start-workout-btn';
+        btn.className = 'start-workout-btn';
+        btn.textContent = '▶ Start Workout';
+        btn.onclick = startWorkout;
+        list.prepend(btn);
+    }
 }
+
+function startWorkout() {
+    const btn = document.getElementById('start-workout-btn');
+    if (btn) btn.remove();
+
+    clearInterval(lapsedTimerInterval);
+    lapsedTimerInterval = setInterval(() => {
+        lapsedTime++;
+        document.getElementById('lapsed-time').textContent = formatTime(lapsedTime);
+    }, 1000);
+}
+
 
 function renderExercise() {
     const list = document.getElementById('exercise-list');
