@@ -1,5 +1,5 @@
 // service-worker.js
-const CACHE_NAME = 'fitness-app-v2';
+const CACHE_NAME = 'fitness-app-v3';
 
 // FIXED: use relative paths so they resolve correctly under the /workoutapp/ subpath
 const BASE = self.location.pathname.replace(/\/service-worker\.js$/, '');
