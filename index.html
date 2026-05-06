@@ -2,10 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Fitness App PWA</title>
-
-    <!-- FIXED: Removed <base href> — it was breaking all relative resource paths -->
 
     <link rel="stylesheet" href="./styles.css">
     <link rel="manifest" href="./manifest.json">
@@ -13,7 +11,7 @@
 
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Fitness App">
     <link rel="apple-touch-icon" href="./icons/icon-192x192.png">
 </head>
@@ -24,6 +22,7 @@
             <h1>💪 Fitness App</h1>
         </header>
 
+        <!-- CALENDAR -->
         <div id="calendar-section" class="tab-content active">
             <h2>📅 Calendar</h2>
             <div id="calendar-view">
@@ -31,6 +30,7 @@
             </div>
         </div>
 
+        <!-- PLAN -->
         <div id="plan-section" class="tab-content">
             <h2>📋 Weekly Workout Plan</h2>
             <div id="weekly-plan"></div>
@@ -38,40 +38,55 @@
             <button onclick="savePlan()">Save Plan</button>
         </div>
 
+        <!-- WORKOUT -->
         <div id="workout-section" class="tab-content">
-            <h2>🏋️‍♂️ Active Workout</h2>
-            <select id="day-select" onchange="loadDayWorkout()"></select>
 
-            <div id="timer-controls" style="margin: 15px 0;">
-                <label>Rest timer:
+            <!-- Sticky HUD: elapsed left, rest timer right -->
+            <div id="workout-hud">
+                <div class="hud-cell">
+                    <div class="hud-label">⏱ Elapsed</div>
+                    <div id="lapsed-time" class="hud-time">00:00</div>
+                </div>
+                <div class="hud-cell hud-right">
+                    <div class="hud-label">😮‍💨 Rest</div>
+                    <div id="timer" class="hud-time">01:00</div>
+                </div>
+            </div>
+
+            <!-- Day selector -->
+            <div class="control-row">
+                <label for="day-select">Day</label>
+                <select id="day-select" onchange="loadDayWorkout()"></select>
+            </div>
+
+            <!-- Rest timer controls -->
+            <div id="timer-controls">
+                <div class="control-row">
+                    <label for="rest-duration-select">Rest duration</label>
                     <select id="rest-duration-select">
                         <option value="30">30s</option>
                         <option value="45">45s</option>
                         <option value="60" selected>60s</option>
                         <option value="90">90s</option>
                         <option value="120">120s</option>
-                        <option value="custom">Custom</option>
+                        <option value="custom">Custom…</option>
                     </select>
-                </label>
-                <input type="number" id="custom-rest-seconds" placeholder="seconds" style="display:none; width:80px;" min="10">
-
-                <div style="margin-top: 8px;">
-                    <button id="timer-start" onclick="startRestTimer()">Start Rest</button>
-                    <button id="timer-stop" onclick="stopRestTimer()" disabled>Stop</button>
-                    <button id="timer-reset" onclick="resetRestTimer()">Reset</button>
+                    <input type="number" id="custom-rest-seconds" placeholder="sec" min="10">
+                </div>
+                <div class="timer-btn-row">
+                    <button id="timer-start" onclick="startRestTimer()">▶ Start</button>
+                    <button id="timer-stop"  onclick="stopRestTimer()" disabled>⏹ Stop</button>
+                    <button id="timer-reset" onclick="resetRestTimer()">↺ Reset</button>
                 </div>
             </div>
 
-            <div id="timer" style="font-size: 42px; font-weight: bold; margin: 15px 0; color: #2196F3;">
-                01:00
-            </div>
-
+            <!-- Current exercise -->
             <div id="exercise-list"></div>
-            <div id="lapsed-time">Session time: 00:00</div>
 
-            <button onclick="completeWorkout()" style="margin-top: 20px;">✅ Complete Workout</button>
+            <button class="complete-btn" onclick="completeWorkout()">✅ Complete Workout</button>
         </div>
 
+        <!-- PROGRESS -->
         <div id="progress-section" class="tab-content">
             <h2>📈 Progress Tracking</h2>
             <div id="progress-log"></div>
@@ -80,22 +95,13 @@
     </main>
 
     <nav class="bottom-tabs">
-        <button class="tab-button active" data-tab="calendar">
-            📅<br><span>Calendar</span>
-        </button>
-        <button class="tab-button" data-tab="plan">
-            📋<br><span>Plan</span>
-        </button>
-        <button class="tab-button" data-tab="workout">
-            🏋️<br><span>Workout</span>
-        </button>
-        <button class="tab-button" data-tab="progress">
-            📈<br><span>Progress</span>
-        </button>
+        <button class="tab-button active" data-tab="calendar">📅<br><span>Calendar</span></button>
+        <button class="tab-button" data-tab="plan">📋<br><span>Plan</span></button>
+        <button class="tab-button" data-tab="workout">🏋️<br><span>Workout</span></button>
+        <button class="tab-button" data-tab="progress">📈<br><span>Progress</span></button>
     </nav>
 </div>
 
-    <!-- FIXED: Added defer so scripts load safely after DOM is parsed -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
     <script src="./app.js" defer></script>
     <script>
