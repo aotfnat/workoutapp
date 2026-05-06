@@ -1,10 +1,13 @@
 // service-worker.js
 const CACHE_NAME = 'fitness-app-v1';
+
+// FIXED: use relative paths so they resolve correctly under the /workoutapp/ subpath
+const BASE = self.location.pathname.replace(/\/service-worker\.js$/, '');
 const urlsToCache = [
-    '/',
-    '/index.html',
-    '/styles.css',
-    '/app.js',
+    BASE + '/',
+    BASE + '/index.html',
+    BASE + '/styles.css',
+    BASE + '/app.js',
     'https://cdn.jsdelivr.net/npm/chart.js'
 ];
 
