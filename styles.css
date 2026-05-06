@@ -1,128 +1,381 @@
-/* styles.css */
+/* ── styles.css ── iPhone-optimised PWA ──────────────────────────── */
+
+/* ── Reset & base ──────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
 body {
     margin: 0;
     padding: 0;
-    font-family: Arial, sans-serif;
-    background-color: #f4f4f4;
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
+    font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+    background-color: #f0f0f5;
+    /* fill entire screen including notch areas */
+    padding-top: env(safe-area-inset-top);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
 }
 
 #app {
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    height: 100dvh;   /* dynamic viewport height — handles iOS safari toolbar */
     overflow: hidden;
 }
 
+/* ── Scrollable content area ────────────────────────────────────── */
 .content-area {
     flex: 1;
     overflow-y: auto;
-    padding-bottom: 70px; /* Space for bottom tabs */
+    -webkit-overflow-scrolling: touch;
+    /* leave room for fixed bottom nav + safe area */
+    padding-bottom: calc(68px + env(safe-area-inset-bottom));
 }
+.content-area::-webkit-scrollbar { display: none; }
 
+/* ── App header ─────────────────────────────────────────────────── */
 header {
-    background-color: #333;
-    color: white;
-    padding: 15px;
+    background-color: #1c1c1e;
+    color: #fff;
+    padding: 14px 16px;
     text-align: center;
     position: sticky;
     top: 0;
-    z-index: 10;
+    z-index: 20;
+}
+header h1 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
 }
 
+/* ── Bottom tab bar ─────────────────────────────────────────────── */
 .bottom-tabs {
     position: fixed;
     bottom: 0;
     left: 0;
     right: 0;
-    background-color: #333;
+    background-color: #1c1c1e;
     display: flex;
-    border-top: 1px solid #555;
+    border-top: 1px solid #3a3a3c;
     z-index: 100;
+    padding-bottom: env(safe-area-inset-bottom);
 }
 
 .tab-button {
     flex: 1;
-    padding: 10px 8px;
-    min-height: 60px;
+    padding: 8px 4px;
+    min-height: 56px;
     background: none;
-    color: white;
+    color: #8e8e93;
     border: none;
-    font-size: 13px;
+    font-size: 20px;
     cursor: pointer;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 3px;
+    gap: 2px;
+    -webkit-tap-highlight-color: transparent;
+    transition: color 0.15s;
 }
-
-.tab-button.active {
-    background-color: #45a049;
-    color: white;
-}
-
 .tab-button span {
-    font-size: 11px;
-    margin-top: 2px;
+    font-size: 10px;
+    letter-spacing: 0.2px;
 }
+.tab-button.active {
+    color: #30d158;   /* iOS green */
+}
+.tab-button:active { opacity: 0.6; }
 
+/* ── Tab content panels ─────────────────────────────────────────── */
 .tab-content {
     display: none;
-    padding: 15px;
+    padding: 16px;
+}
+.tab-content.active { display: block; }
+
+.tab-content h2 {
+    margin-top: 0;
+    font-size: 22px;
+    font-weight: 700;
+    color: #1c1c1e;
 }
 
-.tab-content.active {
-    display: block;
-}
-
-/* Improve scrolling on mobile */
-.content-area::-webkit-scrollbar {
-    display: none;
-}
-
-section {
-    padding: 20px;
-}
-
+/* ── Plan tab — weekly grid ─────────────────────────────────────── */
 #weekly-plan {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
 }
 
 .day {
-    background-color: white;
-    padding: 10px;
-    border: 1px solid #ddd;
-    border-radius: 5px;
+    background: #fff;
+    padding: 12px;
+    border: 1px solid #d1d1d6;
+    border-radius: 12px;
+}
+.day h3 {
+    margin: 0 0 8px;
+    font-size: 16px;
+    color: #1c1c1e;
 }
 
 .exercise {
     margin: 10px 0;
+    font-size: 14px;
+    color: #3a3a3c;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+.exercise input[type="text"] {
+    flex: 1 1 100%;
+    font-size: 14px;
+    padding: 6px 8px;
+    border: 1px solid #d1d1d6;
+    border-radius: 8px;
+}
+.exercise input[type="number"] {
+    width: 60px;
+    font-size: 14px;
+    padding: 6px 8px;
+    border: 1px solid #d1d1d6;
+    border-radius: 8px;
+    text-align: center;
 }
 
-#timer, #lapsed-time {
-    font-size: 24px;
-    margin: 10px 0;
-}
-
+/* ── Buttons ────────────────────────────────────────────────────── */
 button {
-    padding: 10px;
-    background-color: #2196F3;
-    color: white;
+    padding: 10px 18px;
+    background-color: #007aff;
+    color: #fff;
     border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
     cursor: pointer;
-    margin: 5px;
+    margin: 4px;
+    -webkit-tap-highlight-color: transparent;
+    transition: opacity 0.15s;
+}
+button:active  { opacity: 0.7; }
+button:disabled {
+    background-color: #aeaeb2;
+    cursor: default;
 }
 
-button:hover {
-    background-color: #0b7dda;
+/* ── ═══════════════════════════════════════════════════════════════
+   WORKOUT HUD  — elapsed (left) | rest timer (right)
+   Always visible at the top of the workout tab, readable from feet away
+   ═══════════════════════════════════════════════════════════════ */
+#workout-hud {
+    display: flex;
+    justify-content: space-between;
+    align-items: stretch;
+    background: #1c1c1e;
+    border-radius: 16px;
+    margin-bottom: 16px;
+    overflow: hidden;
+    /* stick just below the app header while scrolling */
+    position: sticky;
+    top: 0;
+    z-index: 10;
 }
 
-/* Optional: better mobile feel */
-.tab-button:hover {
-    background-color: #555;
+.hud-cell {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 14px 18px;
+}
+
+/* Right cell: elapsed on left edge, rest on right edge */
+.hud-cell.hud-right {
+    align-items: flex-end;
+    border-left: 1px solid #3a3a3c;
+}
+
+.hud-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: #8e8e93;
+    margin-bottom: 4px;
+}
+
+/* THE BIG NUMBERS — readable from several feet */
+.hud-time {
+    font-size: 52px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    letter-spacing: -2px;
+    color: #fff;
+}
+
+/* Rest timer turns green when running, red when low */
+#timer.running { color: #30d158; }
+#timer.low      { color: #ff453a; }
+
+/* ── Workout controls below the HUD ────────────────────────────── */
+.control-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+.control-row label {
+    font-size: 14px;
+    font-weight: 600;
+    color: #3a3a3c;
+    min-width: 90px;
+}
+.control-row select,
+.control-row input[type="number"] {
+    font-size: 15px;
+    padding: 8px 12px;
+    border: 1px solid #d1d1d6;
+    border-radius: 10px;
+    background: #fff;
+    color: #1c1c1e;
+    -webkit-appearance: none;
+    flex: 1;
+}
+#custom-rest-seconds {
+    display: none;
+    width: 80px;
+    flex: 0 0 80px;
+}
+
+.timer-btn-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+.timer-btn-row button {
+    flex: 1;
+    min-width: 80px;
+    font-size: 15px;
+    padding: 12px 10px;
+}
+#timer-start { background: #30d158; }
+#timer-stop  { background: #ff453a; }
+#timer-reset { background: #636366; }
+
+/* ── Exercise card ──────────────────────────────────────────────── */
+#exercise-list {
+    background: #fff;
+    border-radius: 14px;
+    padding: 18px;
+    margin-bottom: 16px;
+    border: 1px solid #d1d1d6;
+}
+#exercise-list h3 {
+    margin: 0 0 8px;
+    font-size: 20px;
+    font-weight: 700;
+    color: #1c1c1e;
+}
+#exercise-list p {
+    margin: 0 0 14px;
+    font-size: 17px;
+    color: #3a3a3c;
+}
+#exercise-list label {
+    font-size: 15px;
+    color: #3a3a3c;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+#exercise-list input[type="number"] {
+    font-size: 18px;
+    padding: 8px 12px;
+    border: 1px solid #d1d1d6;
+    border-radius: 10px;
+    width: 90px;
+    text-align: center;
+}
+#exercise-list button {
+    width: 100%;
+    padding: 14px;
+    font-size: 17px;
+    background: #007aff;
+    border-radius: 12px;
+    margin: 0;
+}
+
+/* ── Complete workout button ────────────────────────────────────── */
+.complete-btn {
+    width: 100%;
+    padding: 16px;
+    font-size: 17px;
+    font-weight: 700;
+    background: #30d158;
+    border-radius: 14px;
+    margin: 0 0 12px;
+}
+
+/* ── Progress tab ───────────────────────────────────────────────── */
+#progress-log > div {
+    background: #fff;
+    border-radius: 12px;
+    padding: 14px;
+    margin-bottom: 12px;
+    border: 1px solid #d1d1d6;
+}
+#progress-log h4 {
+    margin: 0 0 8px;
+    font-size: 15px;
+    font-weight: 600;
+    color: #1c1c1e;
+}
+#progress-log p {
+    margin: 4px 0;
+    font-size: 14px;
+    color: #636366;
+}
+#progress-chart {
+    width: 100% !important;
+    height: auto !important;
+    border-radius: 12px;
+    background: #fff;
+    margin-top: 8px;
+}
+
+/* ── ═══════════════════════════════════════════════════════════════
+   LANDSCAPE — iPhone rotated
+   Shrink HUD numbers slightly so both clocks still fit side-by-side;
+   reduce header and tab bar to reclaim vertical space.
+   ═══════════════════════════════════════════════════════════════ */
+@media (orientation: landscape) and (max-height: 500px) {
+
+    header { padding: 8px 16px; }
+    header h1 { font-size: 17px; }
+
+    .tab-button { min-height: 44px; font-size: 16px; }
+    .tab-button span { display: none; }   /* hide labels, keep emoji */
+
+    .content-area {
+        padding-bottom: calc(48px + env(safe-area-inset-bottom));
+    }
+
+    /* HUD numbers: still large but compact for landscape */
+    .hud-time { font-size: 38px; letter-spacing: -1.5px; }
+    .hud-cell { padding: 10px 16px; }
+    .hud-label { font-size: 10px; }
+
+    /* Stack controls in two columns to save vertical space */
+    #workout-section .control-row { margin-bottom: 8px; }
+    .timer-btn-row { margin-bottom: 10px; }
+    .timer-btn-row button { padding: 10px 8px; font-size: 14px; }
+
+    .tab-content { padding: 10px 14px; }
 }
