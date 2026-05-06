@@ -1,38 +1,49 @@
 // app.js
-let weeklyPlan = JSON.parse(localStorage.getItem('weeklyPlan')) || {};
-let progressLogs = JSON.parse(localStorage.getItem('progressLogs')) || [];
-let currentWorkout = [];
-let currentExerciseIndex = 0;
-let currentSet = 1;
-let lapsedTimerInterval;
-let lapsedTime = 0;
-let restTimeRemaining = 60;
-let restTimerRunning = false;
-let restTimerInterval = null;
-let selectedRestDuration = 60;
-let chartInstance = null; // FIXED: track chart instance to avoid leaks
 
-// ── Navigation ──────────────────────────────────────────────────
+// ── Data ────────────────────────────────────────────────────────
+// workoutPlan: ordered array of { name: string, exercises: [] }
+// currentWorkoutIndex: which workout fires next (wraps on completion)
+let workoutPlan         = JSON.parse(localStorage.getItem('workoutPlan'))         || [];
+let currentWorkoutIndex = parseInt(localStorage.getItem('currentWorkoutIndex'))    || 0;
+let progressLogs        = JSON.parse(localStorage.getItem('progressLogs'))         || [];
+
+// Guard against stale index after plan edits shrink the array
+if (currentWorkoutIndex >= workoutPlan.length) currentWorkoutIndex = 0;
+
+// Active workout state
+let currentWorkout       = [];
+let currentExerciseIndex = 0;
+let currentSet           = 1;
+let lapsedTimerInterval;
+let lapsedTime           = 0;
+
+// Rest timer state
+let restTimeRemaining  = 60;
+let restTimerRunning   = false;
+let restTimerInterval  = null;
+let selectedRestDuration = 60;
+
+// Chart
+let chartInstance = null;
+
+// ── Navigation ───────────────────────────────────────────────────
 let currentTab = 'calendar';
 
 function switchTab(tabId) {
-    // Clear session timer when leaving workout tab
     if (currentTab === 'workout') clearInterval(lapsedTimerInterval);
 
-    // Update tab content visibility
     document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
     document.getElementById(`${tabId}-section`).classList.add('active');
 
-    // Update active state on menu items
     document.querySelectorAll('.menu-item').forEach(btn => {
         btn.classList.toggle('active', btn.getAttribute('data-tab') === tabId);
     });
 
     currentTab = tabId;
-    toggleMenu(false); // close drawer
+    toggleMenu(false);
 
-    if (tabId === 'plan') loadPlan();
-    if (tabId === 'workout') loadDayOptions();
+    if (tabId === 'plan')    loadPlan();
+    if (tabId === 'workout') loadWorkoutTab();
     if (tabId === 'progress') loadProgress();
 }
 
@@ -45,133 +56,300 @@ function toggleMenu(forceState) {
     drawer.classList.toggle('open', open);
 }
 
-// Keep initTabs as a no-op so any legacy call doesn't crash
-function initTabs() {}
+function initTabs() {} // legacy no-op
+
+// ── Persistence helpers ──────────────────────────────────────────
+function savePlan() {
+    localStorage.setItem('workoutPlan', JSON.stringify(workoutPlan));
+    localStorage.setItem('currentWorkoutIndex', String(currentWorkoutIndex));
+}
+
+function savePlanWithAlert() {
+    savePlan();
+    alert('Plan saved!');
+}
+
+// ── PLAN TAB ─────────────────────────────────────────────────────
 
 function loadPlan() {
-    const planDiv = document.getElementById('weekly-plan');
-    planDiv.innerHTML = '';
-    Object.keys(weeklyPlan).forEach(day => {
-        const dayDiv = document.createElement('div');
-        dayDiv.className = 'day';
-        dayDiv.innerHTML = `<h3>${day}</h3>`;
-        weeklyPlan[day].forEach((ex, idx) => {
-            const unitLabel = {
-                reps:    'reps',
-                seconds: 'seconds',
-                minutes: 'min',
-                meters:  'm'
-            }[ex.unit] || 'reps';
+    const container = document.getElementById('weekly-plan');
+    container.innerHTML = '';
 
-            dayDiv.innerHTML += `
-                <div class="exercise">
-                    <input type="text" value="${ex.name}" onchange="updateExercise('${day}', ${idx}, 'name', this.value)">
-                    Sets: <input type="number" min="1" value="${ex.sets}" onchange="updateExercise('${day}', ${idx}, 'sets', this.value)">
-                    Target: <input type="number" min="1" value="${ex.target}" onchange="updateExercise('${day}', ${idx}, 'target', this.value)">
-                    ${unitLabel}
-                    <button onclick="removeExercise('${day}', ${idx})">Remove</button>
-                </div>
-            `;
-        });
-        dayDiv.innerHTML += `
-            <button onclick="addExercise('${day}')">Add Exercise</button>
-            <button onclick="removeDay('${day}')">Remove Day</button>
-        `;
-        planDiv.appendChild(dayDiv);
-    });
-}
-
-function addDay() {
-    const day = prompt('Enter day name (e.g., Monday):');
-    if (day && !weeklyPlan[day]) {
-        weeklyPlan[day] = [];
-        savePlanSilent();
-        loadPlan();
+    if (workoutPlan.length === 0) {
+        container.innerHTML = '<p class="plan-empty">No workouts yet. Tap "Add Workout" to get started.</p>';
+        return;
     }
+
+    workoutPlan.forEach((workout, wIdx) => {
+        const card = document.createElement('div');
+        card.className = 'day workout-card';
+        card.setAttribute('draggable', 'true');
+        card.dataset.index = wIdx;
+
+        // Highlight which workout is next
+        const isNext = wIdx === currentWorkoutIndex;
+        if (isNext) card.classList.add('next-workout');
+
+        card.innerHTML = `
+            <div class="workout-card-header">
+                <span class="drag-handle" title="Drag to reorder">⠿</span>
+                <span class="workout-seq">#${wIdx + 1}</span>
+                <input class="workout-name-input" type="text" value="${escHtml(workout.name)}"
+                    onchange="updateWorkoutName(${wIdx}, this.value)" placeholder="Workout name">
+                ${isNext ? '<span class="next-badge">▶ Next</span>' : ''}
+                <button class="icon-btn danger" onclick="removeWorkout(${wIdx})" title="Remove workout">✕</button>
+            </div>
+            <div class="exercise-list" id="ex-list-${wIdx}"></div>
+            <div class="card-actions">
+                <button onclick="addExercise(${wIdx})">＋ Add Exercise</button>
+            </div>
+        `;
+
+        // Render exercises inside the card
+        const exList = card.querySelector(`#ex-list-${wIdx}`);
+        workout.exercises.forEach((ex, eIdx) => {
+            const unitLabel = { reps:'reps', seconds:'sec', minutes:'min', meters:'m' }[ex.unit] || 'reps';
+            const row = document.createElement('div');
+            row.className = 'exercise';
+            row.innerHTML = `
+                <input type="text" value="${escHtml(ex.name)}"
+                    onchange="updateExercise(${wIdx}, ${eIdx}, 'name', this.value)" placeholder="Exercise">
+                <label>Sets <input type="number" min="1" value="${ex.sets}"
+                    onchange="updateExercise(${wIdx}, ${eIdx}, 'sets', this.value)"></label>
+                <label>Target <input type="number" min="1" value="${ex.target}"
+                    onchange="updateExercise(${wIdx}, ${eIdx}, 'target', this.value)"> ${unitLabel}</label>
+                <button class="icon-btn danger" onclick="removeExercise(${wIdx}, ${eIdx})" title="Remove">✕</button>
+            `;
+            exList.appendChild(row);
+        });
+
+        container.appendChild(card);
+    });
+
+    initDragAndDrop();
 }
 
-function addExercise(day) {
+function escHtml(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Add / Edit / Remove ──────────────────────────────────────────
+
+function addWorkout() {
+    const name = prompt('Workout name (e.g. "Push Day", "Cardio"):')?.trim();
+    if (!name) return;
+    workoutPlan.push({ name, exercises: [] });
+    savePlan();
+    loadPlan();
+}
+
+function updateWorkoutName(wIdx, value) {
+    workoutPlan[wIdx].name = value.trim() || `Workout ${wIdx + 1}`;
+    savePlan();
+}
+
+function removeWorkout(wIdx) {
+    if (!confirm(`Remove "${workoutPlan[wIdx].name}"?`)) return;
+    workoutPlan.splice(wIdx, 1);
+    // Keep currentWorkoutIndex valid
+    if (currentWorkoutIndex >= workoutPlan.length) currentWorkoutIndex = 0;
+    savePlan();
+    loadPlan();
+}
+
+function addExercise(wIdx) {
     const name = prompt('Exercise name:')?.trim();
     if (!name) return;
 
-    const unit = prompt(
-        'Unit for this exercise?\n' +
-        '1 = reps\n2 = seconds\n3 = minutes\n4 = meters\nEnter number (1-4):'
-    );
-
+    const unit = prompt('Unit?\n1 = reps\n2 = seconds\n3 = minutes\n4 = meters\nEnter 1-4:');
     let selectedUnit;
     switch (unit?.trim()) {
         case '1': selectedUnit = 'reps';    break;
         case '2': selectedUnit = 'seconds'; break;
         case '3': selectedUnit = 'minutes'; break;
         case '4': selectedUnit = 'meters';  break;
-        default:
-            alert("Invalid choice → defaulting to 'reps'");
-            selectedUnit = 'reps';
+        default:  selectedUnit = 'reps'; alert("Defaulting to reps.");
     }
 
-    let targetValue;
-    if (selectedUnit === 'reps')         targetValue = parseInt(prompt('Target reps:', '10'))    || 10;
-    else if (selectedUnit === 'seconds') targetValue = parseInt(prompt('Target seconds:', '30')) || 30;
-    else if (selectedUnit === 'minutes') targetValue = parseInt(prompt('Target minutes:', '3'))  || 3;
-    else                                 targetValue = parseInt(prompt('Target meters:', '400')) || 400;
-
+    const defaults = { reps:'10', seconds:'30', minutes:'3', meters:'400' };
+    const targetValue = parseInt(prompt(`Target ${selectedUnit}:`, defaults[selectedUnit])) || parseInt(defaults[selectedUnit]);
     const sets = parseInt(prompt('Number of sets:', '3')) || 3;
 
-    weeklyPlan[day].push({ name, sets, target: targetValue, unit: selectedUnit, weights: [] });
-    savePlanSilent();
+    workoutPlan[wIdx].exercises.push({ name, sets, target: targetValue, unit: selectedUnit, weights: [] });
+    savePlan();
     loadPlan();
 }
 
-function updateExercise(day, idx, field, value) {
+function updateExercise(wIdx, eIdx, field, value) {
     if (field === 'sets' || field === 'target') value = parseInt(value) || 0;
-    weeklyPlan[day][idx][field] = value;
-    savePlanSilent(); // FIXED: auto-save on every inline edit (no alert)
+    workoutPlan[wIdx].exercises[eIdx][field] = value;
+    savePlan();
 }
 
-function removeExercise(day, idx) {
-    weeklyPlan[day].splice(idx, 1);
-    savePlanSilent();
+function removeExercise(wIdx, eIdx) {
+    workoutPlan[wIdx].exercises.splice(eIdx, 1);
+    savePlan();
     loadPlan();
 }
 
-function removeDay(day) {
-    delete weeklyPlan[day];
-    savePlanSilent();
-    loadPlan();
-}
+// ── Drag-and-drop reordering ─────────────────────────────────────
 
-// FIXED: split into silent save (for auto-save) and user-triggered save (with alert)
-function savePlanSilent() {
-    localStorage.setItem('weeklyPlan', JSON.stringify(weeklyPlan));
-}
+let dragSrcIndex = null;
 
-function savePlan() {
-    savePlanSilent();
-    alert('Plan saved!');
-}
+function initDragAndDrop() {
+    const cards = document.querySelectorAll('.workout-card');
 
-function loadDayOptions() {
-    const select = document.getElementById('day-select');
-    select.innerHTML = '';
-    Object.keys(weeklyPlan).forEach(day => {
-        const option = document.createElement('option');
-        option.value = day;
-        option.textContent = day;
-        select.appendChild(option);
+    cards.forEach(card => {
+        // Desktop drag events
+        card.addEventListener('dragstart', onDragStart);
+        card.addEventListener('dragover',  onDragOver);
+        card.addEventListener('drop',      onDrop);
+        card.addEventListener('dragend',   onDragEnd);
+
+        // Touch events (mobile drag-and-drop shim)
+        const handle = card.querySelector('.drag-handle');
+        if (handle) {
+            handle.addEventListener('touchstart', onTouchStart, { passive: true });
+        }
     });
-    loadDayWorkout();
 }
 
-function loadDayWorkout() {
-    const day = document.getElementById('day-select').value;
-    currentWorkout = JSON.parse(JSON.stringify(weeklyPlan[day] || []));
+function onDragStart(e) {
+    dragSrcIndex = parseInt(this.dataset.index);
+    this.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+}
+
+function onDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    document.querySelectorAll('.workout-card').forEach(c => c.classList.remove('drag-over'));
+    this.classList.add('drag-over');
+}
+
+function onDrop(e) {
+    e.stopPropagation();
+    const targetIndex = parseInt(this.dataset.index);
+    if (dragSrcIndex === null || dragSrcIndex === targetIndex) return;
+
+    // Reorder array
+    const moved = workoutPlan.splice(dragSrcIndex, 1)[0];
+    workoutPlan.splice(targetIndex, 0, moved);
+
+    // Keep currentWorkoutIndex pointing at the same workout after reorder
+    if (dragSrcIndex === currentWorkoutIndex) {
+        currentWorkoutIndex = targetIndex;
+    } else if (dragSrcIndex < currentWorkoutIndex && targetIndex >= currentWorkoutIndex) {
+        currentWorkoutIndex--;
+    } else if (dragSrcIndex > currentWorkoutIndex && targetIndex <= currentWorkoutIndex) {
+        currentWorkoutIndex++;
+    }
+
+    savePlan();
+    loadPlan();
+}
+
+function onDragEnd() {
+    document.querySelectorAll('.workout-card').forEach(c => {
+        c.classList.remove('dragging', 'drag-over');
+    });
+    dragSrcIndex = null;
+}
+
+// ── Touch drag shim (for mobile) ─────────────────────────────────
+let touchDragCard = null;
+let touchClone    = null;
+let touchOffsetY  = 0;
+
+function onTouchStart(e) {
+    const handle = e.currentTarget;
+    touchDragCard = handle.closest('.workout-card');
+    dragSrcIndex  = parseInt(touchDragCard.dataset.index);
+
+    const rect = touchDragCard.getBoundingClientRect();
+    touchOffsetY = e.touches[0].clientY - rect.top;
+
+    // Create a visual clone
+    touchClone = touchDragCard.cloneNode(true);
+    touchClone.style.cssText = `
+        position: fixed; left: ${rect.left}px; top: ${rect.top}px;
+        width: ${rect.width}px; opacity: 0.85; z-index: 9999;
+        pointer-events: none; border: 2px solid #30d158;
+        border-radius: 14px; background: #2c2c2e;
+    `;
+    document.body.appendChild(touchClone);
+    touchDragCard.classList.add('dragging');
+
+    document.addEventListener('touchmove',  onTouchMove,  { passive: false });
+    document.addEventListener('touchend',   onTouchEnd);
+}
+
+function onTouchMove(e) {
+    e.preventDefault();
+    const y = e.touches[0].clientY - touchOffsetY;
+    const x = parseFloat(touchClone.style.left);
+    touchClone.style.top = y + 'px';
+
+    // Find which card we're hovering over
+    touchClone.style.display = 'none';
+    const el = document.elementFromPoint(e.touches[0].clientX, e.touches[0].clientY);
+    touchClone.style.display = '';
+    const hoveredCard = el?.closest('.workout-card');
+
+    document.querySelectorAll('.workout-card').forEach(c => c.classList.remove('drag-over'));
+    if (hoveredCard && hoveredCard !== touchDragCard) hoveredCard.classList.add('drag-over');
+}
+
+function onTouchEnd(e) {
+    document.removeEventListener('touchmove', onTouchMove);
+    document.removeEventListener('touchend',  onTouchEnd);
+
+    if (touchClone) { touchClone.remove(); touchClone = null; }
+
+    const overCard = document.querySelector('.workout-card.drag-over');
+    if (overCard) {
+        const targetIndex = parseInt(overCard.dataset.index);
+        if (dragSrcIndex !== targetIndex) {
+            const moved = workoutPlan.splice(dragSrcIndex, 1)[0];
+            workoutPlan.splice(targetIndex, 0, moved);
+
+            if (dragSrcIndex === currentWorkoutIndex) {
+                currentWorkoutIndex = targetIndex;
+            } else if (dragSrcIndex < currentWorkoutIndex && targetIndex >= currentWorkoutIndex) {
+                currentWorkoutIndex--;
+            } else if (dragSrcIndex > currentWorkoutIndex && targetIndex <= currentWorkoutIndex) {
+                currentWorkoutIndex++;
+            }
+            savePlan();
+        }
+    }
+
+    document.querySelectorAll('.workout-card').forEach(c => c.classList.remove('dragging', 'drag-over'));
+    touchDragCard = null;
+    dragSrcIndex  = null;
+    loadPlan();
+}
+
+// ── WORKOUT TAB ───────────────────────────────────────────────────
+
+function loadWorkoutTab() {
+    if (workoutPlan.length === 0) {
+        document.getElementById('workout-info').innerHTML =
+            '<p>No workouts in your plan yet. Go to Plan to add some.</p>';
+        document.getElementById('exercise-list').innerHTML = '';
+        return;
+    }
+
+    renderWorkoutHeader();
+
+    // Deep-copy the current workout's exercises
+    const wo = workoutPlan[currentWorkoutIndex];
+    currentWorkout = JSON.parse(JSON.stringify(wo.exercises));
     currentWorkout.forEach(ex => ex.weights = new Array(ex.sets).fill(0));
     currentExerciseIndex = 0;
     currentSet = 1;
     lapsedTime = 0;
 
-    // FIXED: always clear before starting a new interval
     clearInterval(lapsedTimerInterval);
     lapsedTimerInterval = setInterval(() => {
         lapsedTime++;
@@ -181,29 +359,50 @@ function loadDayWorkout() {
     renderExercise();
 }
 
+function renderWorkoutHeader() {
+    const total = workoutPlan.length;
+    const wo    = workoutPlan[currentWorkoutIndex];
+    document.getElementById('workout-info').innerHTML = `
+        <div class="workout-info-row">
+            <button class="nav-btn" onclick="nudgeWorkout(-1)" ${total <= 1 ? 'disabled' : ''}>‹</button>
+            <div class="workout-info-text">
+                <span class="workout-num">${currentWorkoutIndex + 1} / ${total}</span>
+                <span class="workout-name-display">${escHtml(wo.name)}</span>
+            </div>
+            <button class="nav-btn" onclick="nudgeWorkout(1)" ${total <= 1 ? 'disabled' : ''}>›</button>
+        </div>
+    `;
+}
+
+// Manual prev/next nudge (doesn't advance the saved index)
+function nudgeWorkout(dir) {
+    const total = workoutPlan.length;
+    currentWorkoutIndex = (currentWorkoutIndex + dir + total) % total;
+    savePlan();
+    loadWorkoutTab();
+}
+
 function renderExercise() {
     const list = document.getElementById('exercise-list');
     list.innerHTML = '';
 
     if (currentExerciseIndex >= currentWorkout.length) {
-        list.innerHTML = '<p>Workout Complete! 🎉</p>';
+        list.innerHTML = '<p class="workout-complete">Workout Complete! 🎉</p>';
         clearInterval(lapsedTimerInterval);
         return;
     }
 
     const ex = currentWorkout[currentExerciseIndex];
-
-    let goalText = '';
-    if (ex.unit === 'reps')         goalText = `Reps: ${ex.target}`;
-    else if (ex.unit === 'seconds') goalText = `Time: ${ex.target} seconds`;
-    else if (ex.unit === 'minutes') goalText = `Time: ${ex.target} min`;
-    else if (ex.unit === 'meters')  goalText = `Distance: ${ex.target} m`;
-    else                            goalText = `Target: ${ex.target}`;
+    const goalLabels = { reps:`Reps: ${ex.target}`, seconds:`Time: ${ex.target}s`,
+                         minutes:`Time: ${ex.target} min`, meters:`Distance: ${ex.target}m` };
+    const goalText = goalLabels[ex.unit] || `Target: ${ex.target}`;
 
     list.innerHTML = `
-        <h3>${ex.name} – Set ${currentSet}/${ex.sets}</h3>
+        <h3>${escHtml(ex.name)} – Set ${currentSet}/${ex.sets}</h3>
         <p>${goalText}</p>
-        <label>Weight (kg/lb): <input type="number" step="0.5" id="weight-input" value="${ex.weights[currentSet-1] || ''}"></label>
+        <label>Weight (kg/lb):
+            <input type="number" step="0.5" id="weight-input" value="${ex.weights[currentSet-1] || ''}">
+        </label>
         <button onclick="nextSet()">Next Set / Done</button>
     `;
 }
@@ -220,95 +419,30 @@ function nextSet() {
     }
 
     renderExercise();
-    prepareNextRest();
-}
-
-function prepareNextRest() {
     resetRestTimer();
 }
 
-// ────────────────────────────────────────────────
-// Timer control functions
-// ────────────────────────────────────────────────
-
-function updateTimerDisplay() {
-    const el = document.getElementById('timer');
-    el.textContent = formatTime(restTimeRemaining);
-    el.classList.toggle('running', restTimerRunning && restTimeRemaining > 10);
-    el.classList.toggle('low',     restTimerRunning && restTimeRemaining <= 10);
-}
-
-function startRestTimer() {
-    if (restTimerRunning) return;
-
-    const select = document.getElementById('rest-duration-select');
-    const customInput = document.getElementById('custom-rest-seconds');
-
-    if (select.value === 'custom') {
-        const customVal = parseInt(customInput.value);
-        if (isNaN(customVal) || customVal < 10) {
-            alert("Please enter a valid number (10–300 seconds)");
-            return;
-        }
-        selectedRestDuration = customVal;
-    } else {
-        selectedRestDuration = parseInt(select.value);
-    }
-
-    restTimeRemaining = selectedRestDuration;
-    updateTimerDisplay();
-
-    restTimerRunning = true;
-    document.getElementById('timer-start').disabled = true;
-    document.getElementById('timer-stop').disabled = false;
-
-    restTimerInterval = setInterval(() => {
-        restTimeRemaining--;
-        updateTimerDisplay();
-
-        if (restTimeRemaining <= 0) {
-            clearInterval(restTimerInterval);
-            restTimerRunning = false;
-            document.getElementById('timer-start').disabled = false;
-            document.getElementById('timer-stop').disabled = true;
-        }
-    }, 1000);
-}
-
-function stopRestTimer() {
-    if (!restTimerRunning) return;
-    clearInterval(restTimerInterval);
-    restTimerRunning = false;
-    document.getElementById('timer-start').disabled = false;
-    document.getElementById('timer-stop').disabled = true;
-    const el = document.getElementById('timer');
-    el.classList.remove('running', 'low');
-}
-
-function resetRestTimer() {
-    stopRestTimer();
-    restTimeRemaining = selectedRestDuration;
-    updateTimerDisplay();
-}
-
-function formatTime(seconds) {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-}
-
 function completeWorkout() {
-    const day = document.getElementById('day-select').value;
+    const wo = workoutPlan[currentWorkoutIndex];
     progressLogs.push({
-        date: new Date().toISOString(),
-        day,
+        date:      new Date().toISOString(),
+        workoutName: wo.name,
+        workoutIndex: currentWorkoutIndex,
         exercises: currentWorkout,
-        duration: lapsedTime
+        duration:  lapsedTime
     });
     localStorage.setItem('progressLogs', JSON.stringify(progressLogs));
     clearInterval(lapsedTimerInterval);
-    alert('Workout completed and logged!');
+
+    // Advance to the next workout (wraps)
+    currentWorkoutIndex = (currentWorkoutIndex + 1) % workoutPlan.length;
+    savePlan();
+
+    alert(`"${wo.name}" logged! Next up: "${workoutPlan[currentWorkoutIndex].name}"`);
+    loadWorkoutTab();
 }
+
+// ── PROGRESS TAB ─────────────────────────────────────────────────
 
 function loadProgress() {
     const logDiv = document.getElementById('progress-log');
@@ -316,8 +450,8 @@ function loadProgress() {
     progressLogs.forEach(log => {
         logDiv.innerHTML += `
             <div>
-                <h4>${new Date(log.date).toLocaleDateString()} - ${log.day} - Duration: ${formatTime(log.duration)}</h4>
-                ${log.exercises.map(ex => `<p>${ex.name}: Weights - ${ex.weights.join(', ')}</p>`).join('')}
+                <h4>${new Date(log.date).toLocaleDateString()} – ${log.workoutName || log.day || ''} – ${formatTime(log.duration)}</h4>
+                ${log.exercises.map(ex => `<p>${escHtml(ex.name)}: ${ex.weights.join(', ')} kg</p>`).join('')}
             </div>
         `;
     });
@@ -330,23 +464,21 @@ function renderChart() {
     progressLogs.forEach(log => {
         log.exercises.forEach(ex => {
             if (!data[ex.name]) data[ex.name] = [];
-            const avgWeight = ex.weights.reduce((a, b) => a + b, 0) / ex.weights.length;
-            data[ex.name].push({ date: log.date, avg: avgWeight });
+            const avg = ex.weights.length
+                ? ex.weights.reduce((a, b) => a + b, 0) / ex.weights.length
+                : 0;
+            data[ex.name].push({ date: log.date, avg });
         });
     });
 
     const datasets = Object.keys(data).map(name => ({
         label: name,
-        data: data[name].map(d => ({ x: d.date, y: d.avg })),
+        data:  data[name].map(d => ({ x: d.date, y: d.avg })),
         borderColor: getRandomColor(),
         fill: false
     }));
 
-    // FIXED: destroy previous chart instance before creating a new one
-    if (chartInstance) {
-        chartInstance.destroy();
-    }
-
+    if (chartInstance) chartInstance.destroy();
     chartInstance = new Chart(ctx, {
         type: 'line',
         data: { datasets },
@@ -363,31 +495,75 @@ function getRandomColor() {
     return `#${Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')}`;
 }
 
-// ────────────────────────────────────────────────
-// DOMContentLoaded — safe entry point
-// ────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
-    // FIXED: event listeners moved here so DOM elements are guaranteed to exist
-    document.getElementById('rest-duration-select').addEventListener('change', function() {
-        const customInput = document.getElementById('custom-rest-seconds');
-        customInput.style.display = this.value === 'custom' ? 'inline' : 'none';
-        if (this.value !== 'custom') {
-            selectedRestDuration = parseInt(this.value);
-            resetRestTimer();
+// ── REST TIMER ───────────────────────────────────────────────────
+
+function updateTimerDisplay() {
+    const el = document.getElementById('timer');
+    el.textContent = formatTime(restTimeRemaining);
+    el.classList.toggle('running', restTimerRunning && restTimeRemaining > 10);
+    el.classList.toggle('low',     restTimerRunning && restTimeRemaining <= 10);
+}
+
+function startRestTimer() {
+    if (restTimerRunning) return;
+    const select = document.getElementById('rest-duration-select');
+    if (select.value === 'custom') {
+        const v = parseInt(document.getElementById('custom-rest-seconds').value);
+        if (isNaN(v) || v < 10) { alert("Enter a valid number (10–300s)"); return; }
+        selectedRestDuration = v;
+    } else {
+        selectedRestDuration = parseInt(select.value);
+    }
+    restTimeRemaining = selectedRestDuration;
+    updateTimerDisplay();
+    restTimerRunning = true;
+    document.getElementById('timer-start').disabled = true;
+    document.getElementById('timer-stop').disabled  = false;
+    restTimerInterval = setInterval(() => {
+        restTimeRemaining--;
+        updateTimerDisplay();
+        if (restTimeRemaining <= 0) {
+            clearInterval(restTimerInterval);
+            restTimerRunning = false;
+            document.getElementById('timer-start').disabled = false;
+            document.getElementById('timer-stop').disabled  = true;
         }
+    }, 1000);
+}
+
+function stopRestTimer() {
+    if (!restTimerRunning) return;
+    clearInterval(restTimerInterval);
+    restTimerRunning = false;
+    document.getElementById('timer-start').disabled = false;
+    document.getElementById('timer-stop').disabled  = true;
+    document.getElementById('timer').classList.remove('running', 'low');
+}
+
+function resetRestTimer() {
+    stopRestTimer();
+    restTimeRemaining = selectedRestDuration;
+    updateTimerDisplay();
+}
+
+function formatTime(s) {
+    return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+}
+
+// ── BOOT ─────────────────────────────────────────────────────────
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('rest-duration-select').addEventListener('change', function() {
+        const custom = document.getElementById('custom-rest-seconds');
+        custom.style.display = this.value === 'custom' ? 'inline' : 'none';
+        if (this.value !== 'custom') { selectedRestDuration = parseInt(this.value); resetRestTimer(); }
     });
 
     document.getElementById('custom-rest-seconds').addEventListener('change', function() {
-        const val = parseInt(this.value);
-        if (!isNaN(val) && val >= 10 && val <= 300) {
-            selectedRestDuration = val;
-            resetRestTimer();
-        }
+        const v = parseInt(this.value);
+        if (!isNaN(v) && v >= 10 && v <= 300) { selectedRestDuration = v; resetRestTimer(); }
     });
 
-    // Initialise timer display
     updateTimerDisplay();
-
-    // Start on Calendar tab
     switchTab('calendar');
 });
