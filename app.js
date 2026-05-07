@@ -39,10 +39,6 @@ function switchTab(tabId) {
     currentTab = tabId;
     toggleMenu(false);
 
-    // Floating ☰ button is redundant on workout tab (HUD has its own)
-    const floatBtn = document.getElementById('floating-menu-btn');
-    if (floatBtn) floatBtn.style.display = tabId === 'workout' ? 'none' : 'flex';
-
     if (tabId === 'plan')     loadPlan();
     if (tabId === 'workout')  resumeWorkoutTab();
     if (tabId === 'progress') loadProgress();
