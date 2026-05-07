@@ -252,17 +252,23 @@ button:disabled {
 
 /* Menu button in non-workout section headings */
 .section-menu-btn {
-    background: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: #2c2c2e;
+    color: #8e8e93;
     border: none;
-    font-size: 22px;
-    color: #636366;
-    padding: 0 8px 0 0;
-    margin: 0;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 7px 13px;
+    margin: 0 0 10px 0;
     cursor: pointer;
-    vertical-align: middle;
     -webkit-tap-highlight-color: transparent;
+    min-height: 36px;          /* generous tap target */
+    min-width: 80px;
 }
-.section-menu-btn:active { opacity: 0.5; }
+.section-menu-btn:active { opacity: 0.6; }
 
 /* ── Hamburger menu button (inside HUD label row) ──────────────── */
 #menu-btn {
