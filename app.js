@@ -11,7 +11,9 @@ let currentWorkout       = [];
 let currentExerciseIndex = 0;
 let currentSet           = 1;
 let lapsedTimerInterval  = null;
-let lapsedTime           = 0;
+let lapsedTime           = 0;      // seconds elapsed (kept in sync for logging)
+let workoutStartTime     = null;   // wall-clock ms when workout started (Date.now())
+let workoutInProgress    = false;  // true once Start Workout is tapped
 
 // ── Active/Rest timer state ───────────────────────────────────────
 // Phase: 'active' | 'rest' | 'idle'
@@ -28,7 +30,7 @@ let chartInstance = null;
 let currentTab = 'calendar';
 
 function switchTab(tabId) {
-    if (currentTab === 'workout') clearInterval(lapsedTimerInterval);
+    // Do NOT clear the lapsed timer when leaving — let it keep running
     document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
     document.getElementById(`${tabId}-section`).classList.add('active');
     document.querySelectorAll('.menu-item').forEach(btn => {
@@ -37,7 +39,7 @@ function switchTab(tabId) {
     currentTab = tabId;
     toggleMenu(false);
     if (tabId === 'plan')     loadPlan();
-    if (tabId === 'workout')  loadWorkoutTab();
+    if (tabId === 'workout')  resumeWorkoutTab();
     if (tabId === 'progress') loadProgress();
 }
 
@@ -268,6 +270,7 @@ function onTouchEnd() {
 
 // ── WORKOUT TAB ───────────────────────────────────────────────────
 
+// Called on first visit or after completing/resetting a workout
 function loadWorkoutTab() {
     if (workoutPlan.length === 0) {
         document.getElementById('exercise-list').innerHTML =
@@ -278,14 +281,29 @@ function loadWorkoutTab() {
     currentWorkout = JSON.parse(JSON.stringify(wo.exercises));
     currentWorkout.forEach(ex => ex.weights = new Array(ex.sets).fill(0));
     currentExerciseIndex = 0;
-    currentSet  = 1;
-    lapsedTime  = 0;
+    currentSet        = 1;
+    lapsedTime        = 0;
+    workoutStartTime  = null;
+    workoutInProgress = false;
     document.getElementById('lapsed-time').textContent = formatTime(0);
     clearInterval(lapsedTimerInterval);
     stopTimer();
     resetTimerDisplay();
     renderExercise();
     showStartButton();
+}
+
+// Called every time the user navigates back to the workout tab
+function resumeWorkoutTab() {
+    if (!workoutInProgress) {
+        // No workout started yet — fresh load
+        loadWorkoutTab();
+        return;
+    }
+    // Workout is running — just re-sync the display, don't reset anything
+    syncElapsedDisplay();
+    renderExercise();
+    updateHudTimer();
 }
 
 function showStartButton() {
@@ -303,11 +321,23 @@ function showStartButton() {
 function startWorkout() {
     const btn = document.getElementById('start-workout-btn');
     if (btn) btn.remove();
+    workoutStartTime  = Date.now();
+    workoutInProgress = true;
+    startElapsedClock();
+}
+
+// Start (or restart) the display-update interval using wall-clock time
+function startElapsedClock() {
     clearInterval(lapsedTimerInterval);
-    lapsedTimerInterval = setInterval(() => {
-        lapsedTime++;
-        document.getElementById('lapsed-time').textContent = formatTime(lapsedTime);
-    }, 1000);
+    lapsedTimerInterval = setInterval(syncElapsedDisplay, 1000);
+}
+
+// Compute elapsed from wall clock — accurate after backgrounding
+function syncElapsedDisplay() {
+    if (!workoutStartTime) return;
+    lapsedTime = Math.floor((Date.now() - workoutStartTime) / 1000);
+    const el = document.getElementById('lapsed-time');
+    if (el) el.textContent = formatTime(lapsedTime);
 }
 
 function renderExercise() {
@@ -345,6 +375,7 @@ function nextSet() {
 }
 
 function completeWorkout() {
+    syncElapsedDisplay(); // ensure lapsedTime is accurate before logging
     const wo = workoutPlan[currentWorkoutIndex];
     progressLogs.push({
         date: new Date().toISOString(),
@@ -355,6 +386,8 @@ function completeWorkout() {
     });
     localStorage.setItem('progressLogs', JSON.stringify(progressLogs));
     clearInterval(lapsedTimerInterval);
+    workoutStartTime  = null;
+    workoutInProgress = false;
     stopTimer();
     currentWorkoutIndex = (currentWorkoutIndex + 1) % workoutPlan.length;
     savePlan();
@@ -506,6 +539,16 @@ function formatTime(s) {
 
 // ── BOOT ─────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+    // When the app comes back to the foreground, resync the elapsed display
+    // immediately (the interval may have been throttled while backgrounded)
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && workoutInProgress) {
+            syncElapsedDisplay();
+            // Restart the display interval in case it was killed
+            startElapsedClock();
+        }
+    });
+
     resetTimerDisplay();
     switchTab('calendar');
 });
