@@ -636,6 +636,26 @@ button:disabled {
     margin: 0;
 }
 
+
+/* ── Plan tab — backup / restore buttons ───────────────────────── */
+.backup-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+.backup-btn {
+    flex: 1;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 12px 10px;
+    border-radius: 12px;
+    margin: 0;
+}
+.export-btn { background: #5e5ce6; }   /* indigo — export */
+.import-btn { background: #ff9f0a; }   /* orange — import */
+.export-btn:active,
+.import-btn:active { opacity: 0.7; }
+
 /* ── ═══════════════════════════════════════════════════════════════
    LANDSCAPE — iPhone rotated
    Shrink HUD numbers slightly so both clocks still fit side-by-side;
