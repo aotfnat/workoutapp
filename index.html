@@ -32,6 +32,11 @@
             <div id="weekly-plan"></div>
             <button onclick="addWorkout()">＋ Add Workout</button>
             <button onclick="savePlanWithAlert()">💾 Save Plan</button>
+            <div class="backup-row">
+                <button class="backup-btn export-btn" onclick="exportPlanCSV()">📤 Export to CSV</button>
+                <button class="backup-btn import-btn" onclick="document.getElementById('csv-import-input').click()">📥 Import CSV</button>
+            </div>
+            <input type="file" id="csv-import-input" accept=".csv" style="display:none" onchange="importPlanCSV(event)">
         </div>
 
         <!-- WORKOUT -->
