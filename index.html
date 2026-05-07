@@ -20,7 +20,6 @@
     <main class="content-area">
         <!-- CALENDAR -->
         <div id="calendar-section" class="tab-content active">
-            <button class="section-menu-btn" onclick="toggleMenu()" aria-label="Menu">☰ Menu</button>
             <h2>📅 Calendar</h2>
             <div id="calendar-view">
                 <p>Upcoming workouts and history will appear here.</p>
@@ -29,7 +28,6 @@
 
         <!-- PLAN -->
         <div id="plan-section" class="tab-content">
-            <button class="section-menu-btn" onclick="toggleMenu()" aria-label="Menu">☰ Menu</button>
             <h2>📋 Plan</h2>
             <div id="weekly-plan"></div>
             <button onclick="addWorkout()">＋ Add Workout</button>
@@ -74,12 +72,14 @@
 
         <!-- PROGRESS -->
         <div id="progress-section" class="tab-content">
-            <button class="section-menu-btn" onclick="toggleMenu()" aria-label="Menu">☰ Menu</button>
             <h2>📈 Progress</h2>
             <div id="progress-log"></div>
             <canvas id="progress-chart" width="400" height="250"></canvas>
         </div>
     </main>
+
+    <!-- Persistent floating menu button (visible on all non-workout tabs) -->
+    <button id="floating-menu-btn" onclick="toggleMenu()" aria-label="Open menu">☰</button>
 
     <!-- Slide-up navigation menu -->
     <div id="menu-overlay" onclick="toggleMenu()"></div>
@@ -125,7 +125,7 @@
 </div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
-    <script src="./app.js" defer></script>
+    <script src="./app.js"></script>
     <script>
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('./service-worker.js')
