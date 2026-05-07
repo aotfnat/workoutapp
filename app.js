@@ -492,6 +492,165 @@ function stepDuration(type, delta) {
     }
 }
 
+
+// ── CSV BACKUP & RESTORE ──────────────────────────────────────────
+
+// CSV columns: workout_index, workout_name, exercise_name, sets, target, unit
+const CSV_HEADER = 'workout_index,workout_name,exercise_name,sets,target,unit';
+
+function csvEscape(val) {
+    // Wrap in quotes if value contains comma, quote, or newline
+    const s = String(val);
+    if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+        return '"' + s.replace(/"/g, '""') + '"';
+    }
+    return s;
+}
+
+function exportPlanCSV() {
+    if (workoutPlan.length === 0) {
+        alert('Nothing to export — your plan is empty.');
+        return;
+    }
+
+    const rows = [CSV_HEADER];
+    workoutPlan.forEach((wo, wIdx) => {
+        if (wo.exercises.length === 0) {
+            // Export the workout shell even if it has no exercises
+            rows.push([csvEscape(wIdx), csvEscape(wo.name), '', '', '', ''].join(','));
+        } else {
+            wo.exercises.forEach(ex => {
+                rows.push([
+                    csvEscape(wIdx),
+                    csvEscape(wo.name),
+                    csvEscape(ex.name),
+                    csvEscape(ex.sets),
+                    csvEscape(ex.target),
+                    csvEscape(ex.unit)
+                ].join(','));
+            });
+        }
+    });
+
+    const csvContent = rows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+
+    // Build a filename with today's date
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const filename = `workout-plan-${dateStr}.csv`;
+
+    const a = document.createElement('a');
+    a.href     = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+function importPlanCSV(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // Reset the input so the same file can be re-imported if needed
+    event.target.value = '';
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const text  = e.target.result;
+            const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
+
+            if (lines.length < 2) {
+                alert('Import failed: the file appears to be empty or has no data rows.');
+                return;
+            }
+
+            // Validate header
+            const header = lines[0].trim().toLowerCase();
+            if (!header.startsWith('workout_index,workout_name')) {
+                alert('Import failed: this doesn't look like a workout plan CSV.\nExpected header: ' + CSV_HEADER);
+                return;
+            }
+
+            // Parse rows
+            const parsed = {};  // keyed by workout_index → { name, exercises[] }
+            const dataLines = lines.slice(1);
+
+            for (let i = 0; i < dataLines.length; i++) {
+                const cols = parseCSVLine(dataLines[i]);
+                if (cols.length < 2) continue;
+
+                const wIdx      = cols[0].trim();
+                const wName     = cols[1].trim();
+                const exName    = (cols[2] || '').trim();
+                const sets      = parseInt(cols[3]) || 3;
+                const target    = parseInt(cols[4]) || 10;
+                const unit      = (cols[5] || 'reps').trim() || 'reps';
+
+                if (!parsed[wIdx]) {
+                    parsed[wIdx] = { name: wName, exercises: [] };
+                }
+                if (exName) {
+                    parsed[wIdx].exercises.push({ name: exName, sets, target, unit, weights: [] });
+                }
+            }
+
+            const importedPlan = Object.values(parsed);
+            if (importedPlan.length === 0) {
+                alert('Import failed: no valid workout data found in the file.');
+                return;
+            }
+
+            // Confirm before overwriting
+            const action = workoutPlan.length === 0
+                ? null   // nothing to overwrite — skip confirm
+                : confirm(
+                    `Import ${importedPlan.length} workout(s) from "${file.name}"?\n\n` +
+                    `This will REPLACE your current plan (${workoutPlan.length} workout(s)).\n\n` +
+                    'Tap OK to replace, or Cancel to abort.'
+                  );
+
+            if (workoutPlan.length > 0 && !action) return;
+
+            workoutPlan = importedPlan;
+            currentWorkoutIndex = 0;
+            savePlan();
+            loadPlan();
+            alert(`✅ Imported ${importedPlan.length} workout(s) successfully!`);
+
+        } catch (err) {
+            alert('Import failed: ' + err.message);
+        }
+    };
+    reader.readAsText(file);
+}
+
+// Minimal RFC 4180 CSV line parser (handles quoted fields with commas/newlines)
+function parseCSVLine(line) {
+    const result = [];
+    let current  = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+        const ch   = line[i];
+        const next = line[i + 1];
+
+        if (inQuotes) {
+            if (ch === '"' && next === '"') { current += '"'; i++; }   // escaped quote
+            else if (ch === '"')            { inQuotes = false; }
+            else                            { current += ch; }
+        } else {
+            if      (ch === '"') { inQuotes = true; }
+            else if (ch === ',') { result.push(current); current = ''; }
+            else                 { current += ch; }
+        }
+    }
+    result.push(current);
+    return result;
+}
+
 // ── PROGRESS TAB ─────────────────────────────────────────────────
 
 function loadProgress() {
