@@ -52,6 +52,13 @@
                 </div>
             </div>
 
+            <!-- Timer controls -->
+            <div class="timer-btn-row">
+                <button id="timer-start" onclick="startActivePhase()">▶ Start</button>
+                <button id="timer-stop"  onclick="stopTimer(); updateHudTimer()">⏹ Stop</button>
+                <button id="timer-reset" onclick="resetTimerDisplay()">↺ Reset</button>
+            </div>
+
             <!-- Current exercise -->
             <div id="exercise-list"></div>
 
