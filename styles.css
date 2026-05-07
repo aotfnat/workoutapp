@@ -161,56 +161,11 @@ button:disabled {
     color: #fff;
 }
 
-/* Rest timer turns green when running, red when low */
-#timer.running { color: #30d158; }
-#timer.low      { color: #ff453a; }
+/* Active/Rest phase colours */
+#timer.timer-active { color: #ff9f0a; }   /* orange = working */
+#timer.timer-rest   { color: #30d158; }   /* green  = resting */
+#timer.timer-rest.low { color: #ff453a; } /* red    = rest almost over */
 
-/* ── Workout controls below the HUD ────────────────────────────── */
-.control-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 12px;
-    flex-wrap: wrap;
-}
-.control-row label {
-    font-size: 14px;
-    font-weight: 600;
-    color: #3a3a3c;
-    min-width: 90px;
-}
-.control-row select,
-.control-row input[type="number"] {
-    font-size: 15px;
-    padding: 8px 12px;
-    border: 1px solid #d1d1d6;
-    border-radius: 10px;
-    background: #fff;
-    color: #1c1c1e;
-    -webkit-appearance: none;
-    flex: 1;
-}
-#custom-rest-seconds {
-    display: none;
-    width: 80px;
-    flex: 0 0 80px;
-}
-
-.timer-btn-row {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 16px;
-    flex-wrap: wrap;
-}
-.timer-btn-row button {
-    flex: 1;
-    min-width: 80px;
-    font-size: 15px;
-    padding: 12px 10px;
-}
-#timer-start { background: #30d158; }
-#timer-stop  { background: #ff453a; }
-#timer-reset { background: #636366; }
 
 /* ── Exercise card ──────────────────────────────────────────────── */
 #exercise-list {
@@ -485,57 +440,6 @@ button:disabled {
 }
 .card-actions button:hover { background: #e5e5ea; }
 
-/* ── Workout tab — info row ─────────────────────────────────────── */
-#workout-info {
-    margin-bottom: 14px;
-}
-
-.workout-info-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    background: #1c1c1e;
-    border-radius: 12px;
-    padding: 10px 14px;
-}
-
-.workout-info-text {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-}
-
-.workout-num {
-    font-size: 11px;
-    font-weight: 600;
-    color: #8e8e93;
-    letter-spacing: 0.4px;
-    text-transform: uppercase;
-}
-
-.workout-name-display {
-    font-size: 18px;
-    font-weight: 700;
-    color: #fff;
-    text-align: center;
-}
-
-.change-btn {
-    background: #2c2c2e;
-    color: #8e8e93;
-    border: none;
-    border-radius: 8px;
-    font-size: 13px;
-    font-weight: 600;
-    padding: 6px 12px;
-    margin: 0;
-    cursor: pointer;
-    white-space: nowrap;
-    -webkit-tap-highlight-color: transparent;
-    flex-shrink: 0;
-}
-.change-btn:active { opacity: 0.6; }
 
 /* Start Workout button — prominent, full-width, disappears on tap */
 .start-workout-btn {
@@ -562,6 +466,155 @@ button:disabled {
     text-align: center;
     color: #30d158;
     padding: 20px 0;
+}
+
+
+/* ── HUD right cell tap hint ────────────────────────────────────── */
+.hud-cell.hud-right:active { opacity: 0.7; }
+
+/* ── Plan tab — next/set-next badge buttons ─────────────────────── */
+.next-badge-btn {
+    font-size: 11px;
+    font-weight: 700;
+    color: #30d158;
+    background: rgba(48,209,88,0.12);
+    border: none;
+    border-radius: 6px;
+    padding: 4px 9px;
+    margin: 0;
+    cursor: pointer;
+    white-space: nowrap;
+    -webkit-tap-highlight-color: transparent;
+}
+.next-badge-btn:active { opacity: 0.6; }
+
+.set-next-btn {
+    font-size: 11px;
+    font-weight: 600;
+    color: #8e8e93;
+    background: #f2f2f7;
+    border: none;
+    border-radius: 6px;
+    padding: 4px 9px;
+    margin: 0;
+    cursor: pointer;
+    white-space: nowrap;
+    -webkit-tap-highlight-color: transparent;
+}
+.set-next-btn:active { opacity: 0.6; }
+
+/* ── Timer settings side drawer (slides in from right) ──────────── */
+#timer-settings-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 300;
+}
+#timer-settings-overlay.open { display: block; }
+
+#timer-settings-drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(300px, 85vw);
+    background: #1c1c1e;
+    padding: 24px 20px calc(24px + env(safe-area-inset-bottom));
+    padding-top: calc(24px + env(safe-area-inset-top));
+    z-index: 301;
+    transform: translateX(100%);
+    transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+#timer-settings-drawer.open { transform: translateX(0); }
+
+.ts-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.ts-title {
+    font-size: 17px;
+    font-weight: 700;
+    color: #fff;
+}
+.ts-close {
+    background: #2c2c2e;
+    color: #8e8e93;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    padding: 6px 12px;
+    margin: 0;
+    cursor: pointer;
+}
+.ts-close:active { opacity: 0.6; }
+
+.ts-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.ts-label {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+}
+.timer-label-active { color: #ff9f0a; }
+.timer-label-rest   { color: #30d158; }
+
+.ts-stepper {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.ts-step-btn {
+    width: 44px;
+    height: 44px;
+    background: #2c2c2e;
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-size: 22px;
+    font-weight: 300;
+    line-height: 1;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+    flex-shrink: 0;
+}
+.ts-step-btn:active { opacity: 0.6; }
+
+.ts-val {
+    font-size: 36px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    color: #fff;
+    min-width: 56px;
+    text-align: center;
+    line-height: 1;
+}
+.ts-unit {
+    font-size: 14px;
+    color: #8e8e93;
+    font-weight: 500;
+}
+
+.ts-hint {
+    font-size: 13px;
+    color: #636366;
+    line-height: 1.5;
+    margin: 0;
 }
 
 /* ── ═══════════════════════════════════════════════════════════════
