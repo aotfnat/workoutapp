@@ -20,7 +20,8 @@
     <main class="content-area">
         <!-- CALENDAR -->
         <div id="calendar-section" class="tab-content active">
-            <h2><button class="section-menu-btn" onclick="toggleMenu()" aria-label="Menu">☰</button> 📅 Calendar</h2>
+            <button class="section-menu-btn" onclick="toggleMenu()" aria-label="Menu">☰ Menu</button>
+            <h2>📅 Calendar</h2>
             <div id="calendar-view">
                 <p>Upcoming workouts and history will appear here.</p>
             </div>
@@ -28,7 +29,8 @@
 
         <!-- PLAN -->
         <div id="plan-section" class="tab-content">
-            <h2><button class="section-menu-btn" onclick="toggleMenu()" aria-label="Menu">☰</button> 📋 Plan</h2>
+            <button class="section-menu-btn" onclick="toggleMenu()" aria-label="Menu">☰ Menu</button>
+            <h2>📋 Plan</h2>
             <div id="weekly-plan"></div>
             <button onclick="addWorkout()">＋ Add Workout</button>
             <button onclick="savePlanWithAlert()">💾 Save Plan</button>
@@ -72,7 +74,8 @@
 
         <!-- PROGRESS -->
         <div id="progress-section" class="tab-content">
-            <h2><button class="section-menu-btn" onclick="toggleMenu()" aria-label="Menu">☰</button> 📈 Progress</h2>
+            <button class="section-menu-btn" onclick="toggleMenu()" aria-label="Menu">☰ Menu</button>
+            <h2>📈 Progress</h2>
             <div id="progress-log"></div>
             <canvas id="progress-chart" width="400" height="250"></canvas>
         </div>
