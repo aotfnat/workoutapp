@@ -570,7 +570,7 @@ function importPlanCSV(event) {
             // Validate header
             const header = lines[0].trim().toLowerCase();
             if (!header.startsWith('workout_index,workout_name')) {
-                alert('Import failed: this doesn't look like a workout plan CSV.\nExpected header: ' + CSV_HEADER);
+                alert("Import failed: this doesn't look like a workout plan CSV.\nExpected header: " + CSV_HEADER);
                 return;
             }
 
