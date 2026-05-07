@@ -311,8 +311,9 @@ button:disabled {
     z-index: 201;
     transform: translateY(100%);
     transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+    pointer-events: none;
 }
-#menu-drawer.open { transform: translateY(0); }
+#menu-drawer.open { transform: translateY(0); pointer-events: auto; }
 
 #menu-drawer-handle {
     width: 36px;
@@ -553,8 +554,9 @@ button:disabled {
     display: flex;
     flex-direction: column;
     gap: 24px;
+    pointer-events: none;
 }
-#timer-settings-drawer.open { transform: translateX(0); }
+#timer-settings-drawer.open { transform: translateX(0); pointer-events: auto; }
 
 .ts-header {
     display: flex;
