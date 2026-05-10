@@ -702,6 +702,34 @@ body:has(#workout-section.active) #floating-menu-btn {
 }
 .section-menu-btn:active { opacity: 0.5; }
 
+
+/* ── App update button (Calendar tab) ──────────────────────────── */
+.update-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+}
+.update-btn {
+    background: #5e5ce6;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+    padding: 12px 18px;
+    border-radius: 12px;
+    border: none;
+    cursor: pointer;
+    margin: 0;
+    -webkit-tap-highlight-color: transparent;
+}
+.update-btn:active { opacity: 0.7; }
+.update-status {
+    font-size: 13px;
+    font-weight: 500;
+    color: #30d158;
+}
+
 /* ── ═══════════════════════════════════════════════════════════════
    LANDSCAPE — iPhone rotated
    Shrink HUD numbers slightly so both clocks still fit side-by-side;
