@@ -730,6 +730,158 @@ body:has(#workout-section.active) #floating-menu-btn {
     color: #30d158;
 }
 
+
+/* ── Exercise entry modal ───────────────────────────────────────── */
+#ex-modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 400;
+}
+#ex-modal-overlay.open { display: block; }
+
+#ex-modal {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%) scale(0.92);
+    width: min(360px, 92vw);
+    background: #1c1c1e;
+    border-radius: 20px;
+    padding: 24px 20px 16px;
+    z-index: 401;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s, transform 0.2s;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+#ex-modal.open {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate(-50%, -50%) scale(1);
+}
+
+.ex-modal-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #fff;
+    text-align: center;
+}
+
+/* 2-column grid for unit buttons, 3-column for preset numbers */
+.ex-btn-grid {
+    display: grid;
+    gap: 10px;
+}
+.ex-btn-grid-2 { grid-template-columns: 1fr 1fr; }
+.ex-btn-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+
+.ex-choice-btn {
+    background: #2c2c2e;
+    color: #fff;
+    border: none;
+    border-radius: 12px;
+    font-size: 17px;
+    font-weight: 600;
+    padding: 16px 8px;
+    margin: 0;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.12s;
+    text-align: center;
+}
+.ex-choice-btn:active { background: #3a3a3c; }
+.ex-manual-btn {
+    background: #3a3a3c;
+    color: #8e8e93;
+    font-size: 15px;
+}
+
+/* Manual entry row */
+#ex-manual-target-row,
+#ex-manual-sets-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.ex-text-input {
+    width: 100%;
+    box-sizing: border-box;
+    background: #2c2c2e;
+    color: #fff;
+    border: 1px solid #3a3a3c;
+    border-radius: 12px;
+    font-size: 17px;
+    padding: 14px 16px;
+}
+.ex-text-input:focus {
+    outline: none;
+    border-color: #30d158;
+}
+
+.ex-num-input {
+    flex: 1;
+    background: #2c2c2e;
+    color: #fff;
+    border: 1px solid #3a3a3c;
+    border-radius: 12px;
+    font-size: 20px;
+    font-weight: 700;
+    padding: 12px 14px;
+    text-align: center;
+}
+.ex-num-input:focus {
+    outline: none;
+    border-color: #30d158;
+}
+
+.ex-modal-footer {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+}
+
+.ex-modal-cancel {
+    background: #3a3a3c;
+    color: #8e8e93;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    padding: 10px 18px;
+    margin: 0;
+    cursor: pointer;
+}
+.ex-modal-next {
+    background: #30d158;
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 700;
+    padding: 10px 18px;
+    margin: 0;
+    cursor: pointer;
+}
+.ex-modal-cancel:active,
+.ex-modal-next:active { opacity: 0.7; }
+
+/* Landscape: shrink modal so it fits without scrolling */
+@media (orientation: landscape) and (max-height: 500px) {
+    #ex-modal {
+        padding: 14px 16px 10px;
+        gap: 10px;
+        max-height: 90dvh;
+        overflow-y: auto;
+    }
+    .ex-choice-btn { padding: 11px 6px; font-size: 15px; }
+    .ex-modal-title { font-size: 15px; }
+}
+
 /* ── ═══════════════════════════════════════════════════════════════
    LANDSCAPE — iPhone rotated
    Shrink HUD numbers slightly so both clocks still fit side-by-side;
