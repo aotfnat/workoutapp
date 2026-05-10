@@ -824,14 +824,15 @@ body:has(#workout-section.active) #floating-menu-btn {
 }
 
 .ex-num-input {
-    flex: 1;
+    flex: 0 1 110px;
+    min-width: 0;
     background: #2c2c2e;
     color: #fff;
     border: 1px solid #3a3a3c;
     border-radius: 12px;
     font-size: 20px;
     font-weight: 700;
-    padding: 12px 14px;
+    padding: 12px 10px;
     text-align: center;
 }
 .ex-num-input:focus {
