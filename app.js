@@ -761,6 +761,69 @@ function hudComboAction() {
 }
 
 
+
+// ── APP UPDATE ────────────────────────────────────────────────────
+// Asks the service worker to check for a new version.
+// localStorage (plan + progress) is never touched — only cached files refresh.
+
+let swRegistration = null;   // set during boot
+
+function setUpdateStatus(msg, isError = false) {
+    const el = document.getElementById('update-status');
+    if (!el) return;
+    el.textContent = msg;
+    el.style.color = isError ? '#ff453a' : '#30d158';
+}
+
+function checkForUpdate() {
+    if (!('serviceWorker' in navigator)) {
+        setUpdateStatus('Service workers not supported in this browser.', true);
+        return;
+    }
+    if (!swRegistration) {
+        setUpdateStatus('Service worker not registered yet — try again.', true);
+        return;
+    }
+
+    setUpdateStatus('Checking for update…');
+
+    // Ask the SW to re-fetch its own script and compare
+    swRegistration.update().then(() => {
+        const waiting  = swRegistration.waiting;
+        const installing = swRegistration.installing;
+
+        if (waiting) {
+            // A new SW is already waiting — activate it now
+            activateWaitingSW(waiting);
+        } else if (installing) {
+            // A new SW is currently installing — wait for it to finish
+            setUpdateStatus('Downloading update…');
+            installing.addEventListener('statechange', () => {
+                if (installing.state === 'installed') {
+                    activateWaitingSW(swRegistration.waiting);
+                }
+            });
+        } else {
+            setUpdateStatus('✓ Already up to date.');
+            setTimeout(() => setUpdateStatus(''), 3000);
+        }
+    }).catch(err => {
+        setUpdateStatus('Update check failed: ' + err.message, true);
+    });
+}
+
+function activateWaitingSW(sw) {
+    if (!sw) return;
+    setUpdateStatus('Installing update…');
+    // Tell the waiting SW to skip waiting and take control
+    sw.postMessage({ action: 'skipWaiting' });
+    // Reload once the new SW has claimed this client
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+        setUpdateStatus('Update ready — reloading…');
+        window.location.reload();
+    });
+}
+
 // ── PROGRESS CSV BACKUP & RESTORE ────────────────────────────────
 // Columns: date, workout_name, duration_seconds, exercise_name, sets, target, unit, weights
 // weights is pipe-separated (e.g. "10|10|12") since it's an array per set
@@ -950,3 +1013,27 @@ document.addEventListener('DOMContentLoaded', () => {
     resetTimerDisplay();
     switchTab('calendar');
 });
+
+// ── Service worker registration (outside DOMContentLoaded is fine) ──
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./service-worker.js')
+        .then(reg => {
+            swRegistration = reg;
+
+            // If a new SW is already waiting when we load, surface it
+            if (reg.waiting) {
+                setUpdateStatus('Update available — tap "Check for App Update" to apply.');
+            }
+
+            // Listen for a SW that finishes installing after page load
+            reg.addEventListener('updatefound', () => {
+                const newSW = reg.installing;
+                newSW.addEventListener('statechange', () => {
+                    if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
+                        setUpdateStatus('Update available — tap "Check for App Update" to apply.');
+                    }
+                });
+            });
+        })
+        .catch(err => console.warn('Service Worker registration failed:', err));
+}
