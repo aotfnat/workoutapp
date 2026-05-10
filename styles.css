@@ -162,9 +162,11 @@ button:disabled {
 }
 
 /* Active/Rest phase colours */
-#timer.timer-active { color: #ff9f0a; }   /* orange = working */
-#timer.timer-rest   { color: #30d158; }   /* green  = resting */
-#timer.timer-rest.low { color: #ff453a; } /* red    = rest almost over */
+#timer.timer-active           { color: #ff9f0a; }   /* orange = working      */
+#timer.timer-rest             { color: #30d158; }   /* green  = resting      */
+#timer.timer-rest.low         { color: #ff453a; }   /* red    = almost done  */
+#timer.timer-active.paused,
+#timer.timer-rest.paused      { opacity: 0.5; }     /* dim when paused       */
 
 
 /* ── Exercise card ──────────────────────────────────────────────── */
