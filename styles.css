@@ -1,137 +1,742 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Fitness App PWA</title>
+/* ── styles.css ── iPhone-optimised PWA ──────────────────────────── */
 
-    <link rel="stylesheet" href="./styles.css">
-    <link rel="manifest" href="./manifest.json">
-    <meta name="theme-color" content="#4CAF50">
+/* ── Reset & base ──────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
 
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="Fitness App">
-    <link rel="apple-touch-icon" href="./icons/icon-192x192.png">
-</head>
-<body>
-<div id="app">
-    <main class="content-area">
-        <!-- CALENDAR -->
-        <div id="calendar-section" class="tab-content active">
-            <h2><button class="section-menu-btn" onclick="toggleMenu()">☰</button> 📅 Calendar</h2>
-            <div id="calendar-view">
-                <p>Upcoming workouts and history will appear here.</p>
-            </div>
-        </div>
+body {
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+    background-color: #f0f0f5;
+    /* fill entire screen including notch areas */
+    padding-top: env(safe-area-inset-top);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+}
 
-        <!-- PLAN -->
-        <div id="plan-section" class="tab-content">
-            <h2><button class="section-menu-btn" onclick="toggleMenu()">☰</button> 📋 Plan</h2>
-            <div id="weekly-plan"></div>
-            <button onclick="addWorkout()">＋ Add Workout</button>
-            <button onclick="savePlanWithAlert()">💾 Save Plan</button>
-            <div class="backup-row">
-                <button class="backup-btn export-btn" onclick="exportPlanCSV()">📤 Export to CSV</button>
-                <button class="backup-btn import-btn" onclick="document.getElementById('csv-import-input').click()">📥 Import CSV</button>
-            </div>
-            <input type="file" id="csv-import-input" accept=".csv" style="display:none" onchange="importPlanCSV(event)">
-        </div>
+#app {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;   /* dynamic viewport height — handles iOS safari toolbar */
+    overflow: hidden;
+}
 
-        <!-- WORKOUT -->
-        <div id="workout-section" class="tab-content">
+/* ── Scrollable content area ────────────────────────────────────── */
+.content-area {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+}
+.content-area::-webkit-scrollbar { display: none; }
 
-            <!-- Sticky HUD: hamburger + elapsed (left) | rest timer (right) -->
-            <div id="workout-hud">
-                <div class="hud-cell">
-                    <div class="hud-label">
-                        <button id="menu-btn" onclick="toggleMenu()" aria-label="Open menu">☰</button>
-                        <span>⏱ Elapsed</span>
-                    </div>
-                    <div id="lapsed-time" class="hud-time">00:00</div>
-                </div>
-                <div class="hud-cell hud-center">
-                    <button id="hud-combo-btn" onclick="hudComboAction()">▶</button>
-                </div>
-                <div class="hud-cell hud-right" onclick="openTimerDrawer()" style="cursor:pointer;">
-                    <div id="timer-phase-label" class="hud-label">🔥 Active</div>
-                    <div id="timer" class="hud-time">00:40</div>
-                </div>
-            </div>
 
-            <!-- Timer controls -->
-            <div class="timer-btn-row">
-                <button id="timer-start" onclick="startActivePhase()">▶ Start</button>
-                <button id="timer-stop"  onclick="stopTimer(); updateHudTimer()">⏹ Stop</button>
-                <button id="timer-reset" onclick="resetTimerDisplay()">↺ Reset</button>
-            </div>
+/* ── Tab content panels ─────────────────────────────────────────── */
+.tab-content {
+    display: none;
+    padding: 16px;
+}
+.tab-content.active { display: block; }
 
-            <!-- Current exercise -->
-            <div id="exercise-list"></div>
+.tab-content h2 {
+    margin-top: 0;
+    font-size: 22px;
+    font-weight: 700;
+    color: #1c1c1e;
+}
 
-            <button class="complete-btn" onclick="completeWorkout()">✅ Complete Workout</button>
-        </div>
+/* ── Plan tab — weekly grid ─────────────────────────────────────── */
+#weekly-plan {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
 
-        <!-- PROGRESS -->
-        <div id="progress-section" class="tab-content">
-            <h2><button class="section-menu-btn" onclick="toggleMenu()">☰</button> 📈 Progress</h2>
-            <div id="progress-log"></div>
-            <canvas id="progress-chart" width="400" height="250"></canvas>
-        </div>
-    </main>
+.day {
+    background: #fff;
+    padding: 12px;
+    border: 1px solid #d1d1d6;
+    border-radius: 12px;
+}
+.day h3 {
+    margin: 0 0 8px;
+    font-size: 16px;
+    color: #1c1c1e;
+}
 
-    <!-- Slide-up navigation menu -->
-    <div id="menu-overlay" onclick="toggleMenu()"></div>
-    <div id="menu-drawer">
-        <div id="menu-drawer-handle"></div>
-        <button class="menu-item active" data-tab="calendar" onclick="switchTab('calendar')">📅  Calendar</button>
-        <button class="menu-item" data-tab="plan"     onclick="switchTab('plan')">📋  Plan</button>
-        <button class="menu-item" data-tab="workout"  onclick="switchTab('workout')">🏋️  Workout</button>
-        <button class="menu-item" data-tab="progress" onclick="switchTab('progress')">📈  Progress</button>
-    </div>
+.exercise {
+    margin: 10px 0;
+    font-size: 14px;
+    color: #3a3a3c;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+.exercise input[type="text"] {
+    flex: 1 1 100%;
+    font-size: 14px;
+    padding: 6px 8px;
+    border: 1px solid #d1d1d6;
+    border-radius: 8px;
+}
+.exercise input[type="number"] {
+    width: 60px;
+    font-size: 14px;
+    padding: 6px 8px;
+    border: 1px solid #d1d1d6;
+    border-radius: 8px;
+    text-align: center;
+}
 
-    <!-- Timer settings side drawer (slides in from right) -->
-    <div id="timer-settings-overlay" onclick="closeTimerDrawer()"></div>
-    <div id="timer-settings-drawer">
-        <div class="ts-header">
-            <span class="ts-title">⏱ Timer Settings</span>
-            <button class="ts-close" onclick="closeTimerDrawer()">✕</button>
-        </div>
+/* ── Buttons ────────────────────────────────────────────────────── */
+button {
+    padding: 10px 18px;
+    background-color: #007aff;
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    margin: 4px;
+    -webkit-tap-highlight-color: transparent;
+    transition: opacity 0.15s;
+}
+button:active  { opacity: 0.7; }
+button:disabled {
+    background-color: #aeaeb2;
+    cursor: default;
+}
 
-        <div class="ts-section">
-            <div class="ts-label timer-label-active">🔥 Active Duration</div>
-            <div class="ts-stepper">
-                <button class="ts-step-btn" onclick="stepDuration('active', -5)">－</button>
-                <span id="active-duration-val" class="ts-val">40</span>
-                <span class="ts-unit">sec</span>
-                <button class="ts-step-btn" onclick="stepDuration('active', 5)">＋</button>
-            </div>
-        </div>
+/* ── ═══════════════════════════════════════════════════════════════
+   WORKOUT HUD  — elapsed (left) | rest timer (right)
+   Always visible at the top of the workout tab, readable from feet away
+   ═══════════════════════════════════════════════════════════════ */
+#workout-hud {
+    display: flex;
+    justify-content: space-between;
+    align-items: stretch;
+    background: #1c1c1e;
+    border-radius: 16px;
+    margin-bottom: 16px;
+    overflow: hidden;
+    /* stick just below the app header while scrolling */
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
 
-        <div class="ts-section">
-            <div class="ts-label timer-label-rest">😮‍💨 Rest Duration</div>
-            <div class="ts-stepper">
-                <button class="ts-step-btn" onclick="stepDuration('rest', -5)">－</button>
-                <span id="rest-duration-val" class="ts-val">20</span>
-                <span class="ts-unit">sec</span>
-                <button class="ts-step-btn" onclick="stepDuration('rest', 5)">＋</button>
-            </div>
-        </div>
+.hud-cell {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 14px 18px;
+}
 
-        <p class="ts-hint">Tap the timer in the workout screen to open this panel. Changes take effect on the next set.</p>
-    </div>
+/* Right cell: elapsed on left edge, rest on right edge */
+.hud-cell.hud-right {
+    align-items: flex-end;
+    border-left: 1px solid #3a3a3c;
+}
 
-</div>
+.hud-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: #8e8e93;
+    margin-bottom: 4px;
+}
 
-    <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
-    <script src="./app.js"></script>
-    <script>
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('./service-worker.js')
-            .then(reg => console.log('Service Worker registered'))
-            .catch(err => console.log('Service Worker registration failed:', err));
+/* HUD numbers — portrait default: compact but clear */
+.hud-time {
+    font-size: 38px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    letter-spacing: -1.5px;
+    color: #fff;
+}
+
+/* Active/Rest phase colours */
+#timer.timer-active { color: #ff9f0a; }   /* orange = working */
+#timer.timer-rest   { color: #30d158; }   /* green  = resting */
+#timer.timer-rest.low { color: #ff453a; } /* red    = rest almost over */
+
+
+/* ── Exercise card ──────────────────────────────────────────────── */
+#exercise-list {
+    background: #fff;
+    border-radius: 14px;
+    padding: 18px;
+    margin-bottom: 16px;
+    border: 1px solid #d1d1d6;
+}
+#exercise-list h3 {
+    margin: 0 0 8px;
+    font-size: 20px;
+    font-weight: 700;
+    color: #1c1c1e;
+}
+#exercise-list p {
+    margin: 0 0 14px;
+    font-size: 17px;
+    color: #3a3a3c;
+}
+#exercise-list label {
+    font-size: 15px;
+    color: #3a3a3c;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+#exercise-list input[type="number"] {
+    font-size: 18px;
+    padding: 8px 12px;
+    border: 1px solid #d1d1d6;
+    border-radius: 10px;
+    width: 90px;
+    text-align: center;
+}
+#exercise-list button {
+    width: 100%;
+    padding: 14px;
+    font-size: 17px;
+    background: #007aff;
+    border-radius: 12px;
+    margin: 0;
+}
+
+/* ── Complete workout button ────────────────────────────────────── */
+.complete-btn {
+    width: 100%;
+    padding: 16px;
+    font-size: 17px;
+    font-weight: 700;
+    background: #30d158;
+    border-radius: 14px;
+    margin: 0 0 12px;
+}
+
+/* ── Progress tab ───────────────────────────────────────────────── */
+#progress-log > div {
+    background: #fff;
+    border-radius: 12px;
+    padding: 14px;
+    margin-bottom: 12px;
+    border: 1px solid #d1d1d6;
+}
+#progress-log h4 {
+    margin: 0 0 8px;
+    font-size: 15px;
+    font-weight: 600;
+    color: #1c1c1e;
+}
+#progress-log p {
+    margin: 4px 0;
+    font-size: 14px;
+    color: #636366;
+}
+#progress-chart {
+    width: 100% !important;
+    height: auto !important;
+    border-radius: 12px;
+    background: #fff;
+    margin-top: 8px;
+}
+
+
+
+/* ── Hamburger menu button (inside HUD label row) ──────────────── */
+#menu-btn {
+    background: none;
+    border: none;
+    color: #8e8e93;
+    font-size: 20px;
+    padding: 0;
+    margin: 0 6px 0 0;
+    line-height: 1;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    vertical-align: middle;
+}
+#menu-btn:active { opacity: 0.5; }
+
+.hud-label {
+    display: flex;
+    align-items: center;
+}
+
+/* ── Slide-up navigation drawer ─────────────────────────────────── */
+#menu-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 200;
+}
+#menu-overlay.open { display: block; }
+
+#menu-drawer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: #1c1c1e;
+    border-radius: 20px 20px 0 0;
+    padding: 12px 16px calc(16px + env(safe-area-inset-bottom));
+    z-index: 201;
+    transform: translateY(100%);
+    transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+    pointer-events: none;
+}
+#menu-drawer.open { transform: translateY(0); pointer-events: auto; }
+
+#menu-drawer-handle {
+    width: 36px;
+    height: 4px;
+    background: #3a3a3c;
+    border-radius: 2px;
+    margin: 0 auto 16px;
+}
+
+.menu-item {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 16px 18px;
+    margin: 0 0 8px;
+    background: #2c2c2e;
+    color: #fff;
+    font-size: 17px;
+    font-weight: 500;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.15s;
+    text-align: left;
+    letter-spacing: 0.1px;
+}
+.menu-item.active {
+    background: #30d158;
+    color: #fff;
+    font-weight: 700;
+}
+.menu-item:active { opacity: 0.7; }
+
+
+/* ── Plan tab — workout cards ───────────────────────────────────── */
+.plan-empty {
+    color: #636366;
+    font-size: 15px;
+    text-align: center;
+    padding: 24px 0;
+}
+
+.workout-card {
+    background: #fff;
+    border: 1px solid #d1d1d6;
+    border-radius: 14px;
+    margin-bottom: 14px;
+    padding: 14px;
+    cursor: default;
+    transition: box-shadow 0.15s, opacity 0.15s;
+}
+.workout-card.next-workout {
+    border-color: #30d158;
+    box-shadow: 0 0 0 2px rgba(48,209,88,0.25);
+}
+.workout-card.dragging  { opacity: 0.4; }
+.workout-card.drag-over { box-shadow: 0 0 0 3px #30d158; }
+
+.workout-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+}
+
+.drag-handle {
+    font-size: 20px;
+    color: #aeaeb2;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    padding: 4px 6px;
+    line-height: 1;
+}
+.drag-handle:active { cursor: grabbing; }
+
+.workout-seq {
+    font-size: 12px;
+    font-weight: 700;
+    color: #8e8e93;
+    min-width: 24px;
+}
+
+.workout-name-input {
+    flex: 1;
+    font-size: 16px;
+    font-weight: 600;
+    color: #1c1c1e;
+    border: none;
+    border-bottom: 1px solid #d1d1d6;
+    background: transparent;
+    padding: 4px 2px;
+    min-width: 120px;
+}
+.workout-name-input:focus { outline: none; border-bottom-color: #007aff; }
+
+.next-badge {
+    font-size: 11px;
+    font-weight: 700;
+    color: #30d158;
+    background: rgba(48,209,88,0.12);
+    border-radius: 6px;
+    padding: 2px 7px;
+    white-space: nowrap;
+}
+
+.icon-btn {
+    background: none;
+    border: none;
+    font-size: 15px;
+    padding: 4px 8px;
+    border-radius: 8px;
+    margin: 0;
+    cursor: pointer;
+    color: #636366;
+}
+.icon-btn.danger { color: #ff453a; }
+.icon-btn:active { opacity: 0.5; }
+
+.exercise-list { margin-bottom: 8px; }
+
+.card-actions button {
+    font-size: 14px;
+    padding: 8px 14px;
+    background: #f2f2f7;
+    color: #007aff;
+    border-radius: 10px;
+    margin: 0;
+}
+.card-actions button:hover { background: #e5e5ea; }
+
+
+/* Start Workout button — prominent, full-width, disappears on tap */
+.start-workout-btn {
+    display: block;
+    width: 100%;
+    padding: 18px;
+    margin: 0 0 16px;
+    background: #30d158;
+    color: #fff;
+    font-size: 20px;
+    font-weight: 700;
+    border: none;
+    border-radius: 14px;
+    cursor: pointer;
+    letter-spacing: 0.2px;
+    -webkit-tap-highlight-color: transparent;
+    transition: opacity 0.15s;
+}
+.start-workout-btn:active { opacity: 0.7; }
+
+.workout-complete {
+    font-size: 20px;
+    font-weight: 700;
+    text-align: center;
+    color: #30d158;
+    padding: 20px 0;
+}
+
+
+
+/* ── Timer Start / Stop / Reset buttons ────────────────────────── */
+.timer-btn-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+.timer-btn-row button {
+    flex: 1;
+    font-size: 15px;
+    font-weight: 700;
+    padding: 12px 8px;
+    margin: 0;
+    border-radius: 12px;
+}
+#timer-start { background: #ff9f0a; }   /* orange — Active */
+#timer-stop  { background: #ff453a; }   /* red    — Stop   */
+#timer-reset { background: #636366; }   /* grey   — Reset  */
+
+/* ── HUD right cell tap hint ────────────────────────────────────── */
+.hud-cell.hud-right:active { opacity: 0.7; }
+
+/* ── Plan tab — next/set-next badge buttons ─────────────────────── */
+.next-badge-btn {
+    font-size: 11px;
+    font-weight: 700;
+    color: #30d158;
+    background: rgba(48,209,88,0.12);
+    border: none;
+    border-radius: 6px;
+    padding: 4px 9px;
+    margin: 0;
+    cursor: pointer;
+    white-space: nowrap;
+    -webkit-tap-highlight-color: transparent;
+}
+.next-badge-btn:active { opacity: 0.6; }
+
+.set-next-btn {
+    font-size: 11px;
+    font-weight: 600;
+    color: #8e8e93;
+    background: #f2f2f7;
+    border: none;
+    border-radius: 6px;
+    padding: 4px 9px;
+    margin: 0;
+    cursor: pointer;
+    white-space: nowrap;
+    -webkit-tap-highlight-color: transparent;
+}
+.set-next-btn:active { opacity: 0.6; }
+
+/* ── Timer settings side drawer (slides in from right) ──────────── */
+#timer-settings-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 300;
+}
+#timer-settings-overlay.open { display: block; }
+
+#timer-settings-drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(300px, 85vw);
+    background: #1c1c1e;
+    padding: 24px 20px calc(24px + env(safe-area-inset-bottom));
+    padding-top: calc(24px + env(safe-area-inset-top));
+    z-index: 301;
+    transform: translateX(100%);
+    transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    pointer-events: none;
+}
+#timer-settings-drawer.open { transform: translateX(0); pointer-events: auto; }
+
+.ts-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.ts-title {
+    font-size: 17px;
+    font-weight: 700;
+    color: #fff;
+}
+.ts-close {
+    background: #2c2c2e;
+    color: #8e8e93;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    padding: 6px 12px;
+    margin: 0;
+    cursor: pointer;
+}
+.ts-close:active { opacity: 0.6; }
+
+.ts-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.ts-label {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+}
+.timer-label-active { color: #ff9f0a; }
+.timer-label-rest   { color: #30d158; }
+
+.ts-stepper {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.ts-step-btn {
+    width: 44px;
+    height: 44px;
+    background: #2c2c2e;
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-size: 22px;
+    font-weight: 300;
+    line-height: 1;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+    flex-shrink: 0;
+}
+.ts-step-btn:active { opacity: 0.6; }
+
+.ts-val {
+    font-size: 36px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    color: #fff;
+    min-width: 56px;
+    text-align: center;
+    line-height: 1;
+}
+.ts-unit {
+    font-size: 14px;
+    color: #8e8e93;
+    font-weight: 500;
+}
+
+.ts-hint {
+    font-size: 13px;
+    color: #636366;
+    line-height: 1.5;
+    margin: 0;
+}
+
+
+/* ── Plan tab — backup / restore buttons ───────────────────────── */
+.backup-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+.backup-btn {
+    flex: 1;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 12px 10px;
+    border-radius: 12px;
+    margin: 0;
+}
+.export-btn { background: #5e5ce6; }   /* indigo — export */
+.import-btn { background: #ff9f0a; }   /* orange — import */
+.export-btn:active,
+.import-btn:active { opacity: 0.7; }
+
+
+/* Hide floating button on workout tab — HUD has its own ☰ */
+#workout-section.active ~ * #floating-menu-btn,
+body:has(#workout-section.active) #floating-menu-btn {
+    display: none;
+}
+
+
+/* ── HUD centre cell — landscape combo button (hidden in portrait) ─ */
+.hud-cell.hud-center {
+    display: none;          /* portrait: hidden */
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+    border-left: 1px solid #3a3a3c;
+    border-right: 1px solid #3a3a3c;
+}
+
+#hud-combo-btn {
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    border: none;
+    font-size: 22px;
+    font-weight: 700;
+    margin: 0;
+    padding: 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+    transition: opacity 0.15s;
+    flex-shrink: 0;
+}
+#hud-combo-btn:active { opacity: 0.65; }
+#hud-combo-btn.combo-start { background: #ff9f0a; color: #fff; }
+#hud-combo-btn.combo-stop  { background: #ff453a; color: #fff; }
+#hud-combo-btn.combo-reset { background: #636366; color: #fff; }
+
+/* ── Section heading menu button ────────────────────────────────── */
+.section-menu-btn {
+    background: none;
+    border: none;
+    color: #636366;
+    font-size: 20px;
+    padding: 0 6px 0 0;
+    margin: 0;
+    cursor: pointer;
+    vertical-align: middle;
+    line-height: 1;
+    -webkit-tap-highlight-color: transparent;
+}
+.section-menu-btn:active { opacity: 0.5; }
+
+/* ── ═══════════════════════════════════════════════════════════════
+   LANDSCAPE — iPhone rotated
+   Shrink HUD numbers slightly so both clocks still fit side-by-side;
+   reduce header and tab bar to reclaim vertical space.
+   ═══════════════════════════════════════════════════════════════ */
+@media (orientation: landscape) and (max-height: 500px) {
+
+    .content-area {
+        padding-bottom: calc(12px + env(safe-area-inset-bottom));
     }
-    </script>
-</body>
-</html>
+
+    /* HUD numbers: large in landscape since there's horizontal room */
+    .hud-time { font-size: 52px; letter-spacing: -2px; }
+    .hud-cell { padding: 10px 16px; }
+    .hud-label { font-size: 10px; }
+
+    /* Stack controls in two columns to save vertical space */
+    #workout-section .control-row { margin-bottom: 8px; }
+    .timer-btn-row { margin-bottom: 10px; }
+    .timer-btn-row button { padding: 10px 8px; font-size: 14px; }
+
+    .tab-content { padding: 10px 14px; }
+
+    /* Drawer: cap height and scroll so all items are reachable in landscape */
+    #menu-drawer {
+        max-height: 80dvh;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    .menu-item {
+        padding: 11px 16px;
+        margin-bottom: 6px;
+        font-size: 15px;
+    }
+    #menu-drawer-handle { margin-bottom: 10px; }
+
+    /* Swap three buttons for single combo button */
+    .hud-cell.hud-center { display: flex; }
+    .timer-btn-row        { display: none; }
+}
