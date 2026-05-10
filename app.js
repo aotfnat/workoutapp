@@ -760,6 +760,136 @@ function hudComboAction() {
     }
 }
 
+
+// ── PROGRESS CSV BACKUP & RESTORE ────────────────────────────────
+// Columns: date, workout_name, duration_seconds, exercise_name, sets, target, unit, weights
+// weights is pipe-separated (e.g. "10|10|12") since it's an array per set
+
+const PROGRESS_CSV_HEADER = 'date,workout_name,duration_seconds,exercise_name,sets,target,unit,weights';
+
+function exportProgressCSV() {
+    if (progressLogs.length === 0) {
+        alert('Nothing to export — no workouts have been logged yet.');
+        return;
+    }
+
+    const rows = [PROGRESS_CSV_HEADER];
+    progressLogs.forEach(log => {
+        const date     = csvEscape(log.date || '');
+        const woName   = csvEscape(log.workoutName || log.day || '');
+        const duration = csvEscape(log.duration || 0);
+
+        if (!log.exercises || log.exercises.length === 0) {
+            // Log with no exercises — still export the session row
+            rows.push([date, woName, duration, '', '', '', '', ''].join(','));
+        } else {
+            log.exercises.forEach(ex => {
+                const weights = Array.isArray(ex.weights) ? ex.weights.join('|') : '';
+                rows.push([
+                    date,
+                    woName,
+                    duration,
+                    csvEscape(ex.name),
+                    csvEscape(ex.sets),
+                    csvEscape(ex.target),
+                    csvEscape(ex.unit || 'reps'),
+                    csvEscape(weights)
+                ].join(','));
+            });
+        }
+    });
+
+    const csvContent = rows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const dateStr  = new Date().toISOString().slice(0, 10);
+    const filename = `progress-log-${dateStr}.csv`;
+
+    const a = document.createElement('a');
+    a.href     = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+function importProgressCSV(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    event.target.value = '';
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const text  = e.target.result;
+            const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
+
+            if (lines.length < 2) {
+                alert('Import failed: the file appears to be empty or has no data rows.');
+                return;
+            }
+
+            const header = lines[0].trim().toLowerCase();
+            if (!header.startsWith('date,workout_name')) {
+                alert("Import failed: this doesn't look like a progress log CSV.\nExpected header: " + PROGRESS_CSV_HEADER);
+                return;
+            }
+
+            // Group rows back into log entries keyed by date+workout_name
+            const logMap = {};   // key: "date||workout_name"
+            const logOrder = []; // preserve insertion order
+
+            lines.slice(1).forEach(line => {
+                const cols       = parseCSVLine(line);
+                const date       = cols[0]?.trim() || '';
+                const woName     = cols[1]?.trim() || '';
+                const duration   = parseInt(cols[2]) || 0;
+                const exName     = cols[3]?.trim() || '';
+                const sets       = parseInt(cols[4]) || 0;
+                const target     = parseInt(cols[5]) || 0;
+                const unit       = cols[6]?.trim() || 'reps';
+                const weightsRaw = cols[7]?.trim() || '';
+                const weights    = weightsRaw ? weightsRaw.split('|').map(Number) : [];
+
+                const key = date + '||' + woName;
+                if (!logMap[key]) {
+                    logMap[key] = { date, workoutName: woName, duration, exercises: [] };
+                    logOrder.push(key);
+                }
+                if (exName) {
+                    logMap[key].exercises.push({ name: exName, sets, target, unit, weights });
+                }
+            });
+
+            const imported = logOrder.map(k => logMap[k]);
+            if (imported.length === 0) {
+                alert('Import failed: no valid log entries found in the file.');
+                return;
+            }
+
+            const action = progressLogs.length === 0
+                ? null
+                : confirm(
+                    `Import ${imported.length} session(s) from "${file.name}"?\n\n` +
+                    `This will REPLACE your current progress log (${progressLogs.length} session(s)).\n\n` +
+                    'Tap OK to replace, or Cancel to abort.'
+                  );
+
+            if (progressLogs.length > 0 && !action) return;
+
+            progressLogs = imported;
+            localStorage.setItem('progressLogs', JSON.stringify(progressLogs));
+            loadProgress();
+            alert(`✅ Imported ${imported.length} session(s) successfully!`);
+
+        } catch (err) {
+            alert('Import failed: ' + err.message);
+        }
+    };
+    reader.readAsText(file);
+}
+
 // ── PROGRESS TAB ─────────────────────────────────────────────────
 
 function loadProgress() {
