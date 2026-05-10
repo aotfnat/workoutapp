@@ -497,13 +497,18 @@ function renderExercise() {
                          minutes:`Time: ${ex.target} min`, meters:`Distance: ${ex.target}m` };
     const goalText = goalLabels[ex.unit] || `Target: ${ex.target}`;
 
+    const isFirst = currentExerciseIndex === 0 && currentSet === 1;
+
     list.innerHTML = `
         <h3>${escHtml(ex.name)} – Set ${currentSet}/${ex.sets}</h3>
-        <p>${goalText}</p>
+        <p class="goal-text">${goalText}</p>
         <label>Weight (kg/lb):
             <input type="number" step="0.5" id="weight-input" value="${ex.weights[currentSet-1] || ''}">
         </label>
-        <button onclick="nextSet()">Next Set / Done</button>
+        <div class="set-btn-row">
+            <button class="back-set-btn" onclick="prevSet()">${isFirst ? '✕' : '‹'}</button>
+            <button class="next-set-btn" onclick="nextSet()">Next Set / Done</button>
+        </div>
     `;
 }
 
@@ -514,6 +519,29 @@ function nextSet() {
     renderExercise();
     // Auto-start fresh Active phase after each set
     startFreshActivePhase();
+}
+
+function prevSet() {
+    // At the very first set of the first exercise — cancel the workout
+    if (currentExerciseIndex === 0 && currentSet === 1) {
+        clearInterval(lapsedTimerInterval);
+        workoutStartTime  = null;
+        workoutInProgress = false;
+        stopTimer();
+        resetTimerDisplay();
+        document.getElementById('lapsed-time').textContent = formatTime(0);
+        renderExercise();
+        showStartButton();
+        return;
+    }
+    // Go back one set, or to the last set of the previous exercise
+    if (currentSet > 1) {
+        currentSet--;
+    } else {
+        currentExerciseIndex--;
+        currentSet = currentWorkout[currentExerciseIndex].sets;
+    }
+    renderExercise();
 }
 
 function completeWorkout() {
