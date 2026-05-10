@@ -661,6 +661,36 @@ button:disabled {
     font-weight: 500;
 }
 
+
+/* ── Timer order toggle button ──────────────────────────────────── */
+.ts-order-toggle {
+    width: 100%;
+    padding: 14px 16px;
+    border: none;
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: 700;
+    margin: 0;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    text-align: center;
+    transition: background 0.2s;
+}
+.ts-order-toggle.order-active-first {
+    background: linear-gradient(90deg, #ff9f0a 60%, #30d158 100%);
+    color: #fff;
+}
+.ts-order-toggle.order-rest-first {
+    background: linear-gradient(90deg, #30d158 60%, #ff9f0a 100%);
+    color: #fff;
+}
+/* Fallback before JS runs */
+.ts-order-toggle:not(.order-active-first):not(.order-rest-first) {
+    background: #2c2c2e;
+    color: #fff;
+}
+.ts-order-toggle:active { opacity: 0.7; }
+
 .ts-hint {
     font-size: 13px;
     color: #636366;
