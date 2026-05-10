@@ -152,23 +152,164 @@ function removeWorkout(wIdx) {
     savePlan(); loadPlan();
 }
 
+// ── Exercise entry modal ─────────────────────────────────────────
+// Step flow: name → unit → target → sets → save
+// Each step renders inside #ex-modal-body
+
+let _exModal = {};   // working state across steps
+
+function exModalOpen() {
+    document.getElementById('ex-modal-overlay').classList.add('open');
+    document.getElementById('ex-modal').classList.add('open');
+}
+function exModalClose() {
+    document.getElementById('ex-modal-overlay').classList.remove('open');
+    document.getElementById('ex-modal').classList.remove('open');
+    _exModal = {};
+}
+function exModalCancel() { exModalClose(); }
+
+function exModalSetTitle(t) {
+    document.getElementById('ex-modal-title').textContent = t;
+}
+function exModalSetBody(html) {
+    document.getElementById('ex-modal-body').innerHTML = html;
+}
+
+// ── Step 1: Name ─────────────────────────────────────────────────
 function addExercise(wIdx) {
-    const name = prompt('Exercise name:')?.trim();
-    if (!name) return;
-    const unit = prompt('Unit?\n1 = reps\n2 = seconds\n3 = minutes\n4 = meters\nEnter 1-4:');
-    let selectedUnit;
-    switch (unit?.trim()) {
-        case '1': selectedUnit = 'reps';    break;
-        case '2': selectedUnit = 'seconds'; break;
-        case '3': selectedUnit = 'minutes'; break;
-        case '4': selectedUnit = 'meters';  break;
-        default:  selectedUnit = 'reps'; alert("Defaulting to reps.");
-    }
-    const defaults = { reps:'10', seconds:'30', minutes:'3', meters:'400' };
-    const targetValue = parseInt(prompt(`Target ${selectedUnit}:`, defaults[selectedUnit])) || parseInt(defaults[selectedUnit]);
-    const sets = parseInt(prompt('Number of sets:', '3')) || 3;
-    workoutPlan[wIdx].exercises.push({ name, sets, target: targetValue, unit: selectedUnit, weights: [] });
-    savePlan(); loadPlan();
+    _exModal = { wIdx };
+    exModalSetTitle('Exercise Name');
+    exModalSetBody(`
+        <input id="ex-name-input" class="ex-text-input" type="text"
+               placeholder="e.g. Bench Press" autocomplete="off">
+    `);
+    exModalOpen();
+    // Render a Next button in footer
+    document.querySelector('.ex-modal-footer').innerHTML = `
+        <button class="ex-modal-cancel" onclick="exModalCancel()">Cancel</button>
+        <button class="ex-modal-next"   onclick="exModalStep2()">Next →</button>
+    `;
+    setTimeout(() => document.getElementById('ex-name-input')?.focus(), 120);
+}
+
+function exModalStep2() {
+    const name = document.getElementById('ex-name-input')?.value.trim();
+    if (!name) { document.getElementById('ex-name-input').focus(); return; }
+    _exModal.name = name;
+
+    // ── Step 2: Unit ─────────────────────────────────────────────
+    exModalSetTitle('Unit');
+    exModalSetBody(`
+        <div class="ex-btn-grid ex-btn-grid-2">
+            <button class="ex-choice-btn" onclick="exModalStep3('reps')">🔢 Reps</button>
+            <button class="ex-choice-btn" onclick="exModalStep3('seconds')">⏱ Seconds</button>
+            <button class="ex-choice-btn" onclick="exModalStep3('minutes')">⏱ Minutes</button>
+            <button class="ex-choice-btn" onclick="exModalStep3('meters')">📏 Meters</button>
+        </div>
+    `);
+    document.querySelector('.ex-modal-footer').innerHTML = `
+        <button class="ex-modal-cancel" onclick="exModalCancel()">Cancel</button>
+        <button class="ex-modal-back"   onclick="addExercise(_exModal.wIdx); _exModal.name = '${escHtml(name)}'" style="display:none"></button>
+    `;
+}
+
+function exModalStep3(unit) {
+    _exModal.unit = unit;
+
+    // ── Step 3: Target quantity ───────────────────────────────────
+    const presets = {
+        reps:    [8, 10, 12, 15, 20],
+        seconds: [10, 20, 30, 45, 60],
+        minutes: [1, 2, 3, 5, 10],
+        meters:  [400, 500, 800, 1600, 2400]
+    };
+    const unitLabel = { reps:'Reps', seconds:'Seconds', minutes:'Minutes', meters:'Meters' }[unit];
+    const vals = presets[unit];
+
+    exModalSetTitle(`Target — ${unitLabel}`);
+    exModalSetBody(`
+        <div class="ex-btn-grid ex-btn-grid-3">
+            ${vals.map(v => `<button class="ex-choice-btn" onclick="exModalStep4(${v})">${v}</button>`).join('')}
+            <button class="ex-choice-btn ex-manual-btn" onclick="exModalManualTarget()">✏️ Manual</button>
+        </div>
+        <div id="ex-manual-target-row" style="display:none; margin-top:14px;">
+            <input id="ex-target-input" class="ex-num-input" type="number"
+                   inputmode="numeric" pattern="[0-9]*" min="1" placeholder="Enter number">
+            <button class="ex-modal-next" onclick="exModalStep4FromInput()">Next →</button>
+        </div>
+    `);
+    document.querySelector('.ex-modal-footer').innerHTML = `
+        <button class="ex-modal-cancel" onclick="exModalCancel()">Cancel</button>
+    `;
+}
+
+function exModalManualTarget() {
+    const row = document.getElementById('ex-manual-target-row');
+    row.style.display = 'flex';
+    document.getElementById('ex-target-input').focus();
+}
+
+function exModalStep4FromInput() {
+    const val = parseInt(document.getElementById('ex-target-input')?.value);
+    if (!val || val < 1) { document.getElementById('ex-target-input').focus(); return; }
+    exModalStep4(val);
+}
+
+function exModalStep4(target) {
+    _exModal.target = target;
+
+    // ── Step 4: Sets ─────────────────────────────────────────────
+    exModalSetTitle('Number of Sets');
+    exModalSetBody(`
+        <div class="ex-btn-grid ex-btn-grid-3">
+            ${[1,2,3,4,5].map(v => `<button class="ex-choice-btn" onclick="exModalSave(${v})">${v}</button>`).join('')}
+            <button class="ex-choice-btn ex-manual-btn" onclick="exModalManualSets()">✏️ Manual</button>
+        </div>
+        <div id="ex-manual-sets-row" style="display:none; margin-top:14px;">
+            <input id="ex-sets-input" class="ex-num-input" type="number"
+                   inputmode="numeric" pattern="[0-9]*" min="1" placeholder="Enter sets">
+            <button class="ex-modal-next" onclick="exModalSaveFromInput()">Save ✓</button>
+        </div>
+    `);
+    document.querySelector('.ex-modal-footer').innerHTML = `
+        <button class="ex-modal-cancel" onclick="exModalCancel()">Cancel</button>
+    `;
+}
+
+function exModalManualSets() {
+    const row = document.getElementById('ex-manual-sets-row');
+    row.style.display = 'flex';
+    document.getElementById('ex-sets-input').focus();
+}
+
+function exModalSaveFromInput() {
+    const val = parseInt(document.getElementById('ex-sets-input')?.value);
+    if (!val || val < 1) { document.getElementById('ex-sets-input').focus(); return; }
+    exModalSave(val);
+}
+
+function exModalSave(sets) {
+    const { wIdx, name, unit, target } = _exModal;
+    workoutPlan[wIdx].exercises.push({ name, sets, target, unit, weights: [] });
+    savePlan();
+    exModalClose();
+    loadPlan();
+}
+
+function addExercise(wIdx) {
+    _exModal = { wIdx };
+    exModalSetTitle('Exercise Name');
+    exModalSetBody(`
+        <input id="ex-name-input" class="ex-text-input" type="text"
+               placeholder="e.g. Bench Press" autocomplete="off">
+    `);
+    exModalOpen();
+    document.querySelector('.ex-modal-footer').innerHTML = `
+        <button class="ex-modal-cancel" onclick="exModalCancel()">Cancel</button>
+        <button class="ex-modal-next"   onclick="exModalStep2()">Next →</button>
+    `;
+    setTimeout(() => document.getElementById('ex-name-input')?.focus(), 120);
 }
 
 function updateExercise(wIdx, eIdx, field, value) {
