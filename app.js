@@ -371,8 +371,8 @@ function nextSet() {
     ex.weights[currentSet-1] = parseFloat(document.getElementById('weight-input')?.value) || 0;
     if (currentSet < ex.sets) { currentSet++; } else { currentExerciseIndex++; currentSet = 1; }
     renderExercise();
-    // Auto-start Active phase after each set
-    startActivePhase();
+    // Auto-start fresh Active phase after each set
+    startFreshActivePhase();
 }
 
 function completeWorkout() {
@@ -397,37 +397,61 @@ function completeWorkout() {
 }
 
 // ── ACTIVE / REST TIMER ───────────────────────────────────────────
+//
+// timerPhase values:
+//   'idle'          – not started / fully reset
+//   'active'        – active countdown running
+//   'rest'          – rest countdown running
+//   'paused-active' – active countdown paused mid-way
+//   'paused-rest'   – rest countdown paused mid-way
+//
+// timerRemaining always holds the current seconds left so resuming is exact.
 
 function resetTimerDisplay() {
-    timerPhase = 'idle';
+    clearInterval(timerInterval);
+    timerInterval  = null;
+    timerPhase     = 'idle';
     timerRemaining = selectedActiveDuration;
-    updateHudTimer();   // updateComboBtn called inside updateHudTimer
+    updateHudTimer();
 }
 
 function updateHudTimer() {
     const el    = document.getElementById('timer');
     const label = document.getElementById('timer-phase-label');
+    if (!el) return;
     el.textContent = formatTime(timerRemaining);
     updateComboBtn();
 
-    // Phase colours
     el.className = 'hud-time';
-    if (timerPhase === 'active') {
+    if (timerPhase === 'active' || timerPhase === 'paused-active') {
         el.classList.add('timer-active');
+        if (timerPhase === 'paused-active') el.classList.add('paused');
         if (label) { label.textContent = '🔥 Active'; label.className = 'hud-label timer-label-active'; }
-    } else if (timerPhase === 'rest') {
+    } else if (timerPhase === 'rest' || timerPhase === 'paused-rest') {
         el.classList.add('timer-rest');
         if (timerRemaining <= 10) el.classList.add('low');
+        if (timerPhase === 'paused-rest') el.classList.add('paused');
         if (label) { label.textContent = '😮‍💨 Rest'; label.className = 'hud-label timer-label-rest'; }
     } else {
+        // idle
         if (label) { label.textContent = '🔥 Active'; label.className = 'hud-label'; }
     }
 }
 
-function startActivePhase() {
-    stopTimer();
-    timerPhase     = 'active';
+// Always start a fresh active countdown from the full duration
+function startFreshActivePhase() {
+    clearInterval(timerInterval);
+    timerInterval  = null;
+    timerPhase     = 'idle';          // force reset so startActivePhase resets remaining
     timerRemaining = selectedActiveDuration;
+    startActivePhase();
+}
+
+// Start active phase — resets to full duration always (use resumeTimer to resume)
+function startActivePhase() {
+    clearInterval(timerInterval);
+    timerRemaining = selectedActiveDuration;
+    timerPhase = 'active';
     updateHudTimer();
     timerInterval = setInterval(() => {
         timerRemaining--;
@@ -435,12 +459,13 @@ function startActivePhase() {
         if (timerRemaining <= 0) {
             clearInterval(timerInterval);
             timerInterval = null;
-            startRestPhase();
+            startRestPhaseFromZero();
         }
     }, 1000);
 }
 
-function startRestPhase() {
+// Always starts rest from full rest duration (auto-transition from active)
+function startRestPhaseFromZero() {
     timerPhase     = 'rest';
     timerRemaining = selectedRestDuration;
     updateHudTimer();
@@ -449,19 +474,50 @@ function startRestPhase() {
         updateHudTimer();
         if (timerRemaining <= 0) {
             clearInterval(timerInterval);
-            timerInterval = null;
-            timerPhase = 'idle';
+            timerInterval  = null;
+            timerPhase     = 'idle';
             timerRemaining = selectedActiveDuration;
             updateHudTimer();
         }
     }, 1000);
 }
 
-function stopTimer() {
+// Resume from wherever timerRemaining currently is (used by portrait ▶ and combo ▶)
+function resumeTimer() {
+    clearInterval(timerInterval);
+    const phase = timerPhase === 'paused-active' ? 'active' : 'rest';
+    timerPhase = phase;
+    updateHudTimer();
+    timerInterval = setInterval(() => {
+        timerRemaining--;
+        updateHudTimer();
+        if (timerRemaining <= 0) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+            if (phase === 'active') {
+                startRestPhaseFromZero();
+            } else {
+                timerPhase     = 'idle';
+                timerRemaining = selectedActiveDuration;
+                updateHudTimer();
+            }
+        }
+    }, 1000);
+}
+
+// Pause — preserve phase and remaining time
+function pauseTimer() {
     clearInterval(timerInterval);
     timerInterval = null;
-    timerPhase    = 'idle';
+    if (timerPhase === 'active') timerPhase = 'paused-active';
+    if (timerPhase === 'rest')   timerPhase = 'paused-rest';
     updateComboBtn();
+    updateHudTimer();
+}
+
+// Legacy stopTimer used elsewhere — now just pauses
+function stopTimer() {
+    pauseTimer();
 }
 
 // ── Timer settings side drawer ────────────────────────────────────
@@ -655,33 +711,52 @@ function parseCSVLine(line) {
 }
 
 
+// Portrait ▶ Start: resume if paused, fresh start if idle
+function portraitStart() {
+    const paused = timerPhase === 'paused-active' || timerPhase === 'paused-rest';
+    if (paused) {
+        resumeTimer();
+    } else {
+        startActivePhase();   // idle or completed — fresh start
+    }
+}
+
 // ── Landscape combo button ────────────────────────────────────────
-// Cycles: idle → start active | running → stop | stopped → reset+start
+// idle      → ▶ orange  → tap → start fresh active phase
+// running   → ⏹ red     → tap → pause, preserve remaining
+// paused    → ↺ grey    → tap → reset to programmed start time
 
 function updateComboBtn() {
     const btn = document.getElementById('hud-combo-btn');
     if (!btn) return;
+    const running = timerInterval !== null;
+    const paused  = timerPhase === 'paused-active' || timerPhase === 'paused-rest';
+
     if (timerPhase === 'idle') {
         btn.textContent = '▶';
         btn.className   = 'combo-start';
-    } else if (timerInterval !== null) {
+    } else if (running) {
         btn.textContent = '⏹';
         btn.className   = 'combo-stop';
-    } else {
-        // stopped mid-phase
+    } else if (paused) {
         btn.textContent = '↺';
         btn.className   = 'combo-reset';
+    } else {
+        btn.textContent = '▶';
+        btn.className   = 'combo-start';
     }
 }
 
 function hudComboAction() {
+    const running = timerInterval !== null;
+    const paused  = timerPhase === 'paused-active' || timerPhase === 'paused-rest';
+
     if (timerPhase === 'idle') {
-        startActivePhase();
-    } else if (timerInterval !== null) {
-        stopTimer();
-        updateHudTimer();
-    } else {
-        resetTimerDisplay();
+        startActivePhase();          // fresh start
+    } else if (running) {
+        pauseTimer();                // pause, keep remaining
+    } else if (paused) {
+        resetTimerDisplay();         // reset to programmed start time
     }
 }
 
