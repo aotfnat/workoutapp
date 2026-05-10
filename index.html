@@ -24,6 +24,10 @@
             <div id="calendar-view">
                 <p>Upcoming workouts and history will appear here.</p>
             </div>
+            <div class="update-row">
+                <button class="update-btn" onclick="checkForUpdate()">🔄 Check for App Update</button>
+                <span id="update-status" class="update-status"></span>
+            </div>
         </div>
 
         <!-- PLAN -->
@@ -131,12 +135,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
     <script src="./app.js"></script>
-    <script>
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('./service-worker.js')
-            .then(reg => console.log('Service Worker registered'))
-            .catch(err => console.log('Service Worker registration failed:', err));
-    }
-    </script>
+
 </body>
 </html>
