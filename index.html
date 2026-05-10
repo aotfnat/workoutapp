@@ -1,23 +1,19 @@
 <!DOCTYPE html>
-
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Fitness App PWA</title>
 
-```
-<link rel="stylesheet" href="./styles.css">
-<link rel="manifest" href="./manifest.json">
-<meta name="theme-color" content="#4CAF50">
+    <link rel="stylesheet" href="./styles.css">
+    <link rel="manifest" href="./manifest.json">
+    <meta name="theme-color" content="#4CAF50">
 
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Fitness App">
-<link rel="apple-touch-icon" href="./icons/icon-192x192.png">
-```
-
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Fitness App">
+    <link rel="apple-touch-icon" href="./icons/icon-192x192.png">
 </head>
 <body>
 <div id="app">
@@ -34,132 +30,128 @@
             </div>
         </div>
 
-```
-    <!-- PLAN -->
-    <div id="plan-section" class="tab-content">
-        <h2><button class="section-menu-btn" onclick="toggleMenu()">☰</button> 📋 Plan</h2>
-        <div id="weekly-plan"></div>
-        <button onclick="addWorkout()">＋ Add Workout</button>
-        <button onclick="savePlanWithAlert()">💾 Save Plan</button>
-        <div class="backup-row">
-            <button class="backup-btn export-btn" onclick="exportPlanCSV()">📤 Export to CSV</button>
-            <button class="backup-btn import-btn" onclick="document.getElementById('csv-import-input').click()">📥 Import CSV</button>
+        <!-- PLAN -->
+        <div id="plan-section" class="tab-content">
+            <h2><button class="section-menu-btn" onclick="toggleMenu()">☰</button> 📋 Plan</h2>
+            <div id="weekly-plan"></div>
+            <button onclick="addWorkout()">＋ Add Workout</button>
+            <button onclick="savePlanWithAlert()">💾 Save Plan</button>
+            <div class="backup-row">
+                <button class="backup-btn export-btn" onclick="exportPlanCSV()">📤 Export to CSV</button>
+                <button class="backup-btn import-btn" onclick="document.getElementById('csv-import-input').click()">📥 Import CSV</button>
+            </div>
+            <input type="file" id="csv-import-input" accept=".csv" style="display:none" onchange="importPlanCSV(event)">
         </div>
-        <input type="file" id="csv-import-input" accept=".csv" style="display:none" onchange="importPlanCSV(event)">
-    </div>
 
-    <!-- WORKOUT -->
-    <div id="workout-section" class="tab-content">
+        <!-- WORKOUT -->
+        <div id="workout-section" class="tab-content">
 
-        <!-- Sticky HUD: hamburger + elapsed (left) | rest timer (right) -->
-        <div id="workout-hud">
-            <div class="hud-cell">
-                <div class="hud-label">
-                    <button id="menu-btn" onclick="toggleMenu()" aria-label="Open menu">☰</button>
-                    <span>⏱ Elapsed</span>
+            <!-- Sticky HUD: hamburger + elapsed (left) | rest timer (right) -->
+            <div id="workout-hud">
+                <div class="hud-cell">
+                    <div class="hud-label">
+                        <button id="menu-btn" onclick="toggleMenu()" aria-label="Open menu">☰</button>
+                        <span>⏱ Elapsed</span>
+                    </div>
+                    <div id="lapsed-time" class="hud-time">00:00</div>
                 </div>
-                <div id="lapsed-time" class="hud-time">00:00</div>
+                <div class="hud-cell hud-center">
+                    <button id="hud-combo-btn" onclick="hudComboAction()">▶</button>
+                </div>
+                <div class="hud-cell hud-right" onclick="openTimerDrawer()" style="cursor:pointer;">
+                    <div id="timer-phase-label" class="hud-label">🔥 Active</div>
+                    <div id="timer" class="hud-time">00:40</div>
+                </div>
             </div>
-            <div class="hud-cell hud-center">
-                <button id="hud-combo-btn" onclick="hudComboAction()">▶</button>
+
+            <!-- Timer controls -->
+            <div class="timer-btn-row">
+                <button id="timer-start" onclick="portraitStart()">▶ Start</button>
+                <button id="timer-stop"  onclick="pauseTimer()">⏹ Stop</button>
+                <button id="timer-reset" onclick="resetTimerDisplay()">↺ Reset</button>
             </div>
-            <div class="hud-cell hud-right" onclick="openTimerDrawer()" style="cursor:pointer;">
-                <div id="timer-phase-label" class="hud-label">🔥 Active</div>
-                <div id="timer" class="hud-time">00:40</div>
+
+            <!-- Current exercise -->
+            <div id="exercise-list"></div>
+
+            <button class="complete-btn" onclick="completeWorkout()">✅ Complete Workout</button>
+        </div>
+
+        <!-- PROGRESS -->
+        <div id="progress-section" class="tab-content">
+            <h2><button class="section-menu-btn" onclick="toggleMenu()">☰</button> 📈 Progress</h2>
+            <div class="backup-row">
+                <button class="backup-btn export-btn" onclick="exportProgressCSV()">📤 Export to CSV</button>
+                <button class="backup-btn import-btn" onclick="document.getElementById('progress-import-input').click()">📥 Import CSV</button>
+            </div>
+            <input type="file" id="progress-import-input" accept=".csv" style="display:none" onchange="importProgressCSV(event)">
+            <div id="progress-log"></div>
+            <canvas id="progress-chart" width="400" height="250"></canvas>
+        </div>
+    </main>
+
+
+    <!-- Exercise entry modal -->
+    <div id="ex-modal-overlay" onclick="exModalCancel()"></div>
+    <div id="ex-modal">
+        <div id="ex-modal-title" class="ex-modal-title"></div>
+        <div id="ex-modal-body"></div>
+        <div class="ex-modal-footer">
+            <button class="ex-modal-cancel" onclick="exModalCancel()">Cancel</button>
+        </div>
+    </div>
+    <!-- Slide-up navigation menu -->
+    <div id="menu-overlay" onclick="toggleMenu()"></div>
+    <div id="menu-drawer">
+        <div id="menu-drawer-handle"></div>
+        <button class="menu-item active" data-tab="calendar" onclick="switchTab('calendar')">📅  Calendar</button>
+        <button class="menu-item" data-tab="plan"     onclick="switchTab('plan')">📋  Plan</button>
+        <button class="menu-item" data-tab="workout"  onclick="switchTab('workout')">🏋️  Workout</button>
+        <button class="menu-item" data-tab="progress" onclick="switchTab('progress')">📈  Progress</button>
+    </div>
+
+    <!-- Timer settings side drawer (slides in from right) -->
+    <div id="timer-settings-overlay" onclick="closeTimerDrawer()"></div>
+    <div id="timer-settings-drawer">
+        <div class="ts-header">
+            <span class="ts-title">⏱ Timer Settings</span>
+            <button class="ts-close" onclick="closeTimerDrawer()">✕</button>
+        </div>
+
+        <div class="ts-section">
+            <div class="ts-label timer-label-active">🔥 Active Duration</div>
+            <div class="ts-stepper">
+                <button class="ts-step-btn" onclick="stepDuration('active', -5)">－</button>
+                <span id="active-duration-val" class="ts-val">40</span>
+                <span class="ts-unit">sec</span>
+                <button class="ts-step-btn" onclick="stepDuration('active', 5)">＋</button>
             </div>
         </div>
 
-        <!-- Timer controls -->
-        <div class="timer-btn-row">
-            <button id="timer-start" onclick="portraitStart()">▶ Start</button>
-            <button id="timer-stop"  onclick="pauseTimer()">⏹ Stop</button>
-            <button id="timer-reset" onclick="resetTimerDisplay()">↺ Reset</button>
+        <div class="ts-section">
+            <div class="ts-label timer-label-rest">😮‍💨 Rest Duration</div>
+            <div class="ts-stepper">
+                <button class="ts-step-btn" onclick="stepDuration('rest', -5)">－</button>
+                <span id="rest-duration-val" class="ts-val">20</span>
+                <span class="ts-unit">sec</span>
+                <button class="ts-step-btn" onclick="stepDuration('rest', 5)">＋</button>
+            </div>
         </div>
 
-        <!-- Current exercise -->
-        <div id="exercise-list"></div>
-
-        <button class="complete-btn" onclick="completeWorkout()">✅ Complete Workout</button>
-    </div>
-
-    <!-- PROGRESS -->
-    <div id="progress-section" class="tab-content">
-        <h2><button class="section-menu-btn" onclick="toggleMenu()">☰</button> 📈 Progress</h2>
-        <div class="backup-row">
-            <button class="backup-btn export-btn" onclick="exportProgressCSV()">📤 Export to CSV</button>
-            <button class="backup-btn import-btn" onclick="document.getElementById('progress-import-input').click()">📥 Import CSV</button>
+        <div class="ts-section">
+            <div class="ts-label" style="color:#fff;">Timer Order</div>
+            <button id="timer-order-toggle" class="ts-order-toggle" onclick="toggleTimerOrder()">
+                <span id="timer-order-label">🔥 Active → 😮‍💨 Rest</span>
+            </button>
         </div>
-        <input type="file" id="progress-import-input" accept=".csv" style="display:none" onchange="importProgressCSV(event)">
-        <div id="progress-log"></div>
-        <canvas id="progress-chart" width="400" height="250"></canvas>
+
+        <p class="ts-hint">Tap the timer in the workout screen to open this panel. Changes take effect on the next set.</p>
     </div>
-</main>
-
-
-<!-- Exercise entry modal -->
-<div id="ex-modal-overlay" onclick="exModalCancel()"></div>
-<div id="ex-modal">
-    <div id="ex-modal-title" class="ex-modal-title"></div>
-    <div id="ex-modal-body"></div>
-    <div class="ex-modal-footer">
-        <button class="ex-modal-cancel" onclick="exModalCancel()">Cancel</button>
-    </div>
-</div>
-<!-- Slide-up navigation menu -->
-<div id="menu-overlay" onclick="toggleMenu()"></div>
-<div id="menu-drawer">
-    <div id="menu-drawer-handle"></div>
-    <button class="menu-item active" data-tab="calendar" onclick="switchTab('calendar')">📅  Calendar</button>
-    <button class="menu-item" data-tab="plan"     onclick="switchTab('plan')">📋  Plan</button>
-    <button class="menu-item" data-tab="workout"  onclick="switchTab('workout')">🏋️  Workout</button>
-    <button class="menu-item" data-tab="progress" onclick="switchTab('progress')">📈  Progress</button>
-</div>
-
-<!-- Timer settings side drawer (slides in from right) -->
-<div id="timer-settings-overlay" onclick="closeTimerDrawer()"></div>
-<div id="timer-settings-drawer">
-    <div class="ts-header">
-        <span class="ts-title">⏱ Timer Settings</span>
-        <button class="ts-close" onclick="closeTimerDrawer()">✕</button>
-    </div>
-
-    <div class="ts-section">
-        <div class="ts-label timer-label-active">🔥 Active Duration</div>
-        <div class="ts-stepper">
-            <button class="ts-step-btn" onclick="stepDuration('active', -5)">－</button>
-            <span id="active-duration-val" class="ts-val">40</span>
-            <span class="ts-unit">sec</span>
-            <button class="ts-step-btn" onclick="stepDuration('active', 5)">＋</button>
-        </div>
-    </div>
-
-    <div class="ts-section">
-        <div class="ts-label timer-label-rest">😮‍💨 Rest Duration</div>
-        <div class="ts-stepper">
-            <button class="ts-step-btn" onclick="stepDuration('rest', -5)">－</button>
-            <span id="rest-duration-val" class="ts-val">20</span>
-            <span class="ts-unit">sec</span>
-            <button class="ts-step-btn" onclick="stepDuration('rest', 5)">＋</button>
-        </div>
-    </div>
-
-    <div class="ts-section">
-        <div class="ts-label" style="color:#fff;">Timer Order</div>
-        <button id="timer-order-toggle" class="ts-order-toggle" onclick="toggleTimerOrder()">
-            <span id="timer-order-label">🔥 Active → 😮‍💨 Rest</span>
-        </button>
-    </div>
-
-    <p class="ts-hint">Tap the timer in the workout screen to open this panel. Changes take effect on the next set.</p>
-</div>
-```
 
 </div>
 
-```
-<script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
-<script src="./app.js"></script>
-```
+    <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+    <script src="./app.js"></script>
 
 </body>
 </html>
