@@ -401,13 +401,14 @@ function completeWorkout() {
 function resetTimerDisplay() {
     timerPhase = 'idle';
     timerRemaining = selectedActiveDuration;
-    updateHudTimer();
+    updateHudTimer();   // updateComboBtn called inside updateHudTimer
 }
 
 function updateHudTimer() {
     const el    = document.getElementById('timer');
     const label = document.getElementById('timer-phase-label');
     el.textContent = formatTime(timerRemaining);
+    updateComboBtn();
 
     // Phase colours
     el.className = 'hud-time';
@@ -460,6 +461,7 @@ function stopTimer() {
     clearInterval(timerInterval);
     timerInterval = null;
     timerPhase    = 'idle';
+    updateComboBtn();
 }
 
 // ── Timer settings side drawer ────────────────────────────────────
@@ -650,6 +652,37 @@ function parseCSVLine(line) {
     }
     result.push(current);
     return result;
+}
+
+
+// ── Landscape combo button ────────────────────────────────────────
+// Cycles: idle → start active | running → stop | stopped → reset+start
+
+function updateComboBtn() {
+    const btn = document.getElementById('hud-combo-btn');
+    if (!btn) return;
+    if (timerPhase === 'idle') {
+        btn.textContent = '▶';
+        btn.className   = 'combo-start';
+    } else if (timerInterval !== null) {
+        btn.textContent = '⏹';
+        btn.className   = 'combo-stop';
+    } else {
+        // stopped mid-phase
+        btn.textContent = '↺';
+        btn.className   = 'combo-reset';
+    }
+}
+
+function hudComboAction() {
+    if (timerPhase === 'idle') {
+        startActivePhase();
+    } else if (timerInterval !== null) {
+        stopTimer();
+        updateHudTimer();
+    } else {
+        resetTimerDisplay();
+    }
 }
 
 // ── PROGRESS TAB ─────────────────────────────────────────────────
