@@ -204,14 +204,55 @@ button:disabled {
     width: 90px;
     text-align: center;
 }
-#exercise-list button {
-    width: 100%;
-    padding: 14px;
-    font-size: 17px;
-    background: #007aff;
+/* Goal text — bold */
+.goal-text {
+    font-weight: 700;
+    font-size: 18px;
+    color: #1c1c1e;
+    margin: 0 0 14px;
+}
+
+/* Set navigation button row */
+.set-btn-row {
+    display: flex;
+    gap: 10px;
+    align-items: stretch;
+    margin-top: 4px;
+}
+
+/* Back / cancel button — 25% width */
+.back-set-btn {
+    flex: 0 0 auto;
+    width: 25%;
+    padding: 14px 0;
+    font-size: 22px;
+    font-weight: 700;
+    background: #3a3a3c;
+    color: #fff;
+    border: none;
     border-radius: 12px;
     margin: 0;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    text-align: center;
 }
+.back-set-btn:active { opacity: 0.6; }
+
+/* Next Set / Done button — 75% width */
+.next-set-btn {
+    flex: 1;
+    padding: 14px;
+    font-size: 17px;
+    font-weight: 700;
+    background: #007aff;
+    color: #fff;
+    border: none;
+    border-radius: 12px;
+    margin: 0;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+.next-set-btn:active { opacity: 0.7; }
 
 /* ── Complete workout button ────────────────────────────────────── */
 .complete-btn {
