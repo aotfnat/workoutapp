@@ -76,6 +76,11 @@
         <!-- PROGRESS -->
         <div id="progress-section" class="tab-content">
             <h2><button class="section-menu-btn" onclick="toggleMenu()">☰</button> 📈 Progress</h2>
+            <div class="backup-row">
+                <button class="backup-btn export-btn" onclick="exportProgressCSV()">📤 Export to CSV</button>
+                <button class="backup-btn import-btn" onclick="document.getElementById('progress-import-input').click()">📥 Import CSV</button>
+            </div>
+            <input type="file" id="progress-import-input" accept=".csv" style="display:none" onchange="importProgressCSV(event)">
             <div id="progress-log"></div>
             <canvas id="progress-chart" width="400" height="250"></canvas>
         </div>
