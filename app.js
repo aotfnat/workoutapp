@@ -449,15 +449,15 @@ function resumeWorkoutTab() {
 }
 
 function showStartButton() {
+    // Remove any existing button first to avoid duplicates
+    document.getElementById('start-workout-btn')?.remove();
     const list = document.getElementById('exercise-list');
-    if (currentExerciseIndex === 0 && currentSet === 1 && lapsedTime === 0) {
-        const btn = document.createElement('button');
-        btn.id        = 'start-workout-btn';
-        btn.className = 'start-workout-btn';
-        btn.textContent = '▶ Start Workout';
-        btn.onclick = startWorkout;
-        list.prepend(btn);
-    }
+    const btn = document.createElement('button');
+    btn.id        = 'start-workout-btn';
+    btn.className = 'start-workout-btn';
+    btn.textContent = '▶ Start Workout';
+    btn.onclick = startWorkout;
+    list.prepend(btn);
 }
 
 function startWorkout() {
@@ -524,9 +524,10 @@ function nextSet() {
 function prevSet() {
     // At the very first set of the first exercise — cancel the workout
     if (currentExerciseIndex === 0 && currentSet === 1) {
-        clearInterval(lapsedTimerInterval);
+        lapsedTime        = 0;   // zero before clearing interval to block any stale tick
         workoutStartTime  = null;
         workoutInProgress = false;
+        clearInterval(lapsedTimerInterval);
         stopTimer();
         resetTimerDisplay();
         document.getElementById('lapsed-time').textContent = formatTime(0);
