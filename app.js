@@ -22,7 +22,7 @@ let timerInterval       = null;
 let timerRemaining      = 0;
 let selectedActiveDuration = 40;   // seconds
 let selectedRestDuration   = 20;   // seconds
-let timerOrder = 'active-first';   // 'active-first' | 'rest-first'
+let timerOrder = 'rest-first';   // 'active-first' | 'rest-first'
 
 // Chart
 let chartInstance = null;
