@@ -691,6 +691,8 @@ button:disabled {
     color: #fff;
 }
 .ts-order-toggle:active { opacity: 0.7; }
+.sound-on  { background: #30d158; color: #fff; }
+.sound-off { background: #2c2c2e; color: #8e8e93; }
 
 .ts-hint {
     font-size: 13px;
