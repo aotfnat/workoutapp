@@ -20,9 +20,10 @@ let workoutInProgress    = false;  // true once Start Workout is tapped
 let timerPhase          = 'idle';
 let timerInterval       = null;
 let timerRemaining      = 0;
-let selectedActiveDuration = 60;   // seconds
-let selectedRestDuration   = 55;   // seconds
+let selectedActiveDuration = 40;   // seconds
+let selectedRestDuration   = 20;   // seconds
 let timerOrder = 'rest-first';   // 'active-first' | 'rest-first'
+let soundEnabled = false;          // whistle on active start, buzzer on active end
 
 // Chart
 let chartInstance = null;
@@ -500,6 +501,9 @@ function renderExercise() {
 
     const isFirst = currentExerciseIndex === 0 && currentSet === 1;
 
+    const isLastSet = currentExerciseIndex === currentWorkout.length - 1
+                    && currentSet === ex.sets;
+
     list.innerHTML = `
         <h3>${escHtml(ex.name)} – Set ${currentSet}/${ex.sets}</h3>
         <p class="goal-text">${goalText}</p>
@@ -510,6 +514,7 @@ function renderExercise() {
             <button class="back-set-btn" onclick="prevSet()">${isFirst ? '✕' : '‹'}</button>
             <button class="next-set-btn" onclick="nextSet()">Next Set / Done</button>
         </div>
+        ${isLastSet ? '<button class="complete-btn" onclick="completeWorkout()" style="margin-top:10px;">✅ Complete Workout</button>' : ''}
     `;
 }
 
@@ -563,8 +568,8 @@ function completeWorkout() {
     stopTimer();
     currentWorkoutIndex = (currentWorkoutIndex + 1) % workoutPlan.length;
     savePlan();
-    alert(`"${wo.name}" logged! Next up: "${workoutPlan[currentWorkoutIndex].name}"`);
-    loadWorkoutTab();
+    // Auto-switch to Progress tab to show results
+    switchTab('progress');
 }
 
 // ── ACTIVE / REST TIMER ───────────────────────────────────────────
@@ -644,12 +649,14 @@ function startActivePhaseFromZero() {
     timerPhase     = 'active';
     timerRemaining = selectedActiveDuration;
     updateHudTimer();
+    playWhistle();
     timerInterval = setInterval(() => {
         timerRemaining--;
         updateHudTimer();
         if (timerRemaining <= 0) {
             clearInterval(timerInterval);
             timerInterval  = null;
+            playBuzzer();
             timerPhase     = 'idle';
             timerRemaining = selectedRestDuration;
             updateHudTimer();
@@ -663,12 +670,14 @@ function startActivePhase() {
     timerRemaining = selectedActiveDuration;
     timerPhase = 'active';
     updateHudTimer();
+    playWhistle();
     timerInterval = setInterval(() => {
         timerRemaining--;
         updateHudTimer();
         if (timerRemaining <= 0) {
             clearInterval(timerInterval);
             timerInterval = null;
+            playBuzzer();
             startRestPhaseFromZero();
         }
     }, 1000);
@@ -698,12 +707,14 @@ function resumeTimer() {
     const phase = timerPhase === 'paused-active' ? 'active' : 'rest';
     timerPhase = phase;
     updateHudTimer();
+    if (phase === 'active') playWhistle();
     timerInterval = setInterval(() => {
         timerRemaining--;
         updateHudTimer();
         if (timerRemaining <= 0) {
             clearInterval(timerInterval);
             timerInterval = null;
+            if (phase === 'active') playBuzzer();
             if (timerOrder === 'active-first') {
                 // active → rest → idle
                 if (phase === 'active') {
@@ -748,6 +759,7 @@ function openTimerDrawer() {
     document.getElementById('active-duration-val').textContent = selectedActiveDuration;
     document.getElementById('rest-duration-val').textContent   = selectedRestDuration;
     updateTimerOrderUI();
+    updateSoundUI();
     document.getElementById('timer-settings-overlay').classList.add('open');
     document.getElementById('timer-settings-drawer').classList.add('open');
 }
@@ -1069,6 +1081,69 @@ function activateWaitingSW(sw) {
         setUpdateStatus('Update ready — reloading…');
         window.location.reload();
     });
+}
+
+
+// ── SOUNDS ───────────────────────────────────────────────────────
+// Uses Web Audio API to synthesise a whistle (active start) and buzzer (active end)
+// so no external files are needed.
+
+let _audioCtx = null;
+function getAudioCtx() {
+    if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    return _audioCtx;
+}
+
+function playWhistle() {
+    if (!soundEnabled) return;
+    try {
+        const ctx = getAudioCtx();
+        // Short rising tone — like a referee whistle tweet
+        const osc  = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(1200, ctx.currentTime);
+        osc.frequency.linearRampToValueAtTime(1600, ctx.currentTime + 0.12);
+        gain.gain.setValueAtTime(0.6, ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.18);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.18);
+    } catch(e) {}
+}
+
+function playBuzzer() {
+    if (!soundEnabled) return;
+    try {
+        const ctx = getAudioCtx();
+        // Two short descending bursts — like a game-show buzzer
+        [0, 0.18].forEach(offset => {
+            const osc  = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(220, ctx.currentTime + offset);
+            osc.frequency.linearRampToValueAtTime(110, ctx.currentTime + offset + 0.14);
+            gain.gain.setValueAtTime(0.5, ctx.currentTime + offset);
+            gain.gain.linearRampToValueAtTime(0, ctx.currentTime + offset + 0.14);
+            osc.start(ctx.currentTime + offset);
+            osc.stop(ctx.currentTime + offset + 0.14);
+        });
+    } catch(e) {}
+}
+
+function toggleSound() {
+    soundEnabled = !soundEnabled;
+    updateSoundUI();
+}
+
+function updateSoundUI() {
+    const btn = document.getElementById('sound-toggle-btn');
+    if (!btn) return;
+    btn.textContent  = soundEnabled ? '🔔 Sound On' : '🔕 Sound Off';
+    btn.className    = 'ts-order-toggle ' + (soundEnabled ? 'sound-on' : 'sound-off');
 }
 
 // ── PROGRESS CSV BACKUP & RESTORE ────────────────────────────────
