@@ -552,8 +552,9 @@ function prevSet() {
 }
 
 function completeWorkout() {
-    syncElapsedDisplay(); // ensure lapsedTime is accurate before logging
     const wo = workoutPlan[currentWorkoutIndex];
+    if (!confirm(`Complete "${wo.name}"?\n\nThis will log your workout and advance to the next one.`)) return;
+    syncElapsedDisplay();
     progressLogs.push({
         date: new Date().toISOString(),
         workoutName: wo.name,
