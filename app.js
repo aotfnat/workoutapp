@@ -20,8 +20,8 @@ let workoutInProgress    = false;  // true once Start Workout is tapped
 let timerPhase          = 'idle';
 let timerInterval       = null;
 let timerRemaining      = 0;
-let selectedActiveDuration = 40;   // seconds
-let selectedRestDuration   = 20;   // seconds
+let selectedActiveDuration = 60;   // seconds
+let selectedRestDuration   = 55;   // seconds
 let timerOrder = 'rest-first';   // 'active-first' | 'rest-first'
 
 // Chart
