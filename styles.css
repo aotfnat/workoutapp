@@ -239,8 +239,9 @@ button:disabled {
 }
 .back-set-btn:active { opacity: 0.6; }
 
-/* Next Set / Done button — 75% width */
-.next-set-btn {
+/* Next Set button — 75% width */
+.next-set-btn,
+.set-btn-row .complete-btn {
     flex: 1;
     padding: 14px;
     font-size: 17px;
@@ -776,6 +777,51 @@ body:has(#workout-section.active) #floating-menu-btn {
 }
 .section-menu-btn:active { opacity: 0.5; }
 
+
+
+/* ── Collapsible workout card ────────────────────────────────────── */
+.workout-card-header {
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+}
+.collapse-chevron {
+    font-size: 11px;
+    color: #aeaeb2;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+.card-body {
+    margin-top: 8px;
+}
+
+/* ── Previous accomplishment block ──────────────────────────────── */
+.prev-accomplishment {
+    margin-top: 10px;
+    background: #f2f2f7;
+    border-radius: 10px;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.prev-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: #8e8e93;
+}
+.prev-stats {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1c1c1e;
+}
+.prev-none {
+    color: #aeaeb2;
+    font-size: 13px;
+    font-style: italic;
+}
 
 /* ── App update button (Calendar tab) ──────────────────────────── */
 .update-row {
