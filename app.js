@@ -677,8 +677,12 @@ function updateHudTimer() {
         if (timerPhase === 'paused-rest') el.classList.add('paused');
         if (label) { label.textContent = '😮‍💨 Rest'; label.className = 'hud-label timer-label-rest'; }
     } else {
-        // idle
-        if (label) { label.textContent = '🔥 Active'; label.className = 'hud-label'; }
+        // idle — show whichever phase fires first
+        if (timerOrder === 'rest-first') {
+            if (label) { label.textContent = '😮‍💨 Rest'; label.className = 'hud-label timer-label-rest'; }
+        } else {
+            if (label) { label.textContent = '🔥 Active'; label.className = 'hud-label timer-label-active'; }
+        }
     }
 }
 
