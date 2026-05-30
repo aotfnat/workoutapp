@@ -23,7 +23,7 @@ let timerRemaining      = 0;
 let selectedActiveDuration = 60;   // seconds
 let selectedRestDuration   = 55;   // seconds
 let timerOrder = 'rest-first';   // 'active-first' | 'rest-first'
-let soundEnabled = true;          // whistle on active start, buzzer on active end
+let soundEnabled = JSON.parse(localStorage.getItem('soundEnabled') ?? 'true');          // whistle on active start, buzzer on active end
 
 // Chart
 let chartInstance = null;
@@ -1347,6 +1347,7 @@ function playBuzzer() {
 
 function toggleSound() {
     soundEnabled = !soundEnabled;
+    localStorage.setItem('soundEnabled', JSON.stringify(soundEnabled));
     updateSoundUI();
 }
 
