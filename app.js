@@ -23,7 +23,7 @@ let timerRemaining      = 0;
 let selectedActiveDuration = 60;   // seconds
 let selectedRestDuration   = 55;   // seconds
 let timerOrder = 'rest-first';   // 'active-first' | 'rest-first'
-let soundEnabled = false;          // whistle on active start, buzzer on active end
+let soundEnabled = true;          // whistle on active start, buzzer on active end
 
 // Chart
 let chartInstance = null;
