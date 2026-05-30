@@ -13,7 +13,7 @@ let currentSet           = 1;
 let lapsedTimerInterval  = null;
 let lapsedTime           = 0;      // seconds elapsed (kept in sync for logging)
 let workoutStartTime     = null;   // wall-clock ms when workout started (Date.now())
-let workoutInProgress    = true;  // true once Start Workout is tapped
+let workoutInProgress    = false;  // true once Start Workout is tapped
 
 // ── Active/Rest timer state ───────────────────────────────────────
 // Phase: 'active' | 'rest' | 'idle'
