@@ -44,6 +44,7 @@ function switchTab(tabId) {
     currentTab = tabId;
     toggleMenu(false);
 
+    if (tabId === 'calendar') loadCalendar();
     if (tabId === 'plan')     loadPlan();
     if (tabId === 'workout')  resumeWorkoutTab();
     if (tabId === 'progress') loadProgress();
@@ -67,6 +68,72 @@ function savePlan() {
 }
 function savePlanWithAlert() { savePlan(); alert('Plan saved!'); }
 
+
+// ── CALENDAR ─────────────────────────────────────────────────────
+let calendarYear  = new Date().getFullYear();
+let calendarMonth = new Date().getMonth(); // 0-based
+
+function loadCalendar() {
+    renderCalendar(calendarYear, calendarMonth);
+}
+
+function renderCalendar(year, month) {
+    const container = document.getElementById('calendar-view');
+
+    // Build set of "YYYY-MM-DD" strings from progressLogs
+    const workedDays = new Set(
+        progressLogs.map(log => log.date ? log.date.slice(0, 10) : null).filter(Boolean)
+    );
+
+    const today      = new Date();
+    const firstDay   = new Date(year, month, 1);
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const startDow   = firstDay.getDay(); // 0=Sun
+
+    const monthName = firstDay.toLocaleString('default', { month: 'long', year: 'numeric' });
+
+    let html = `
+        <div class="cal-header">
+            <button class="cal-nav" onclick="calNav(-1)">‹</button>
+            <span class="cal-month-label">${monthName}</span>
+            <button class="cal-nav" onclick="calNav(1)">›</button>
+        </div>
+        <div class="cal-grid">
+            <div class="cal-dow">Su</div>
+            <div class="cal-dow">Mo</div>
+            <div class="cal-dow">Tu</div>
+            <div class="cal-dow">We</div>
+            <div class="cal-dow">Th</div>
+            <div class="cal-dow">Fr</div>
+            <div class="cal-dow">Sa</div>
+    `;
+
+    // Empty cells before first day
+    for (let i = 0; i < startDow; i++) {
+        html += `<div class="cal-day cal-empty"></div>`;
+    }
+
+    for (let d = 1; d <= daysInMonth; d++) {
+        const dateStr  = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        const isToday  = d === today.getDate() && month === today.getMonth() && year === today.getFullYear();
+        const hasWorkout = workedDays.has(dateStr);
+        let cls = 'cal-day';
+        if (isToday)    cls += ' cal-today';
+        if (hasWorkout) cls += ' cal-worked';
+        html += `<div class="${cls}">${d}${hasWorkout ? '<span class="cal-dot"></span>' : ''}</div>`;
+    }
+
+    html += `</div>`;
+    container.innerHTML = html;
+}
+
+function calNav(dir) {
+    calendarMonth += dir;
+    if (calendarMonth > 11) { calendarMonth = 0;  calendarYear++; }
+    if (calendarMonth < 0)  { calendarMonth = 11; calendarYear--; }
+    renderCalendar(calendarYear, calendarMonth);
+}
+
 // ── PLAN TAB ─────────────────────────────────────────────────────
 
 function loadPlan() {
@@ -79,6 +146,14 @@ function loadPlan() {
     }
 
     workoutPlan.forEach((workout, wIdx) => {
+        // Swipe-delete wrapper
+        const wrapper = document.createElement('div');
+        wrapper.className = 'swipe-wrapper';
+        const delBtn = document.createElement('button');
+        delBtn.className = 'swipe-delete-btn';
+        delBtn.dataset.index = wIdx;
+        delBtn.textContent = '🗑 Delete';
+
         const card = document.createElement('div');
         card.className = 'day workout-card';
         card.setAttribute('draggable', 'true');
@@ -100,7 +175,6 @@ function loadPlan() {
                 ${isNext
                     ? `<button class="next-badge-btn" onclick="event.stopPropagation(); advanceToWorkout(${wIdx})">▶ Next</button>`
                     : `<button class="set-next-btn"   onclick="event.stopPropagation(); advanceToWorkout(${wIdx})">Set Next</button>`}
-                <button class="icon-btn danger" onclick="event.stopPropagation(); removeWorkout(${wIdx})" title="Remove">✕</button>
                 <span class="collapse-chevron">${isExpanded ? '▲' : '▼'}</span>
             </div>
             <div class="card-body" id="card-body-${wIdx}" style="display:${isExpanded ? 'block' : 'none'};">
@@ -129,11 +203,75 @@ function loadPlan() {
             exList.appendChild(row);
         });
 
-        container.appendChild(card);
+        wrapper.appendChild(delBtn);
+        wrapper.appendChild(card);
+        container.appendChild(wrapper);
     });
 
     initDragAndDrop();
+    initSwipeToDelete();
 }
+
+// ── Swipe-to-delete workout cards ────────────────────────────────
+function initSwipeToDelete() {
+    document.querySelectorAll('.workout-card').forEach(card => {
+        let startX = 0, startY = 0, currentX = 0;
+        let swiping = false;
+        const threshold = 80;  // px to trigger delete reveal
+
+        card.addEventListener('touchstart', e => {
+            startX  = e.touches[0].clientX;
+            startY  = e.touches[0].clientY;
+            currentX = 0;
+            swiping = false;
+            card.style.transition = 'none';
+        }, { passive: true });
+
+        card.addEventListener('touchmove', e => {
+            const dx = e.touches[0].clientX - startX;
+            const dy = e.touches[0].clientY - startY;
+            // Only activate on horizontal swipe (not scroll)
+            if (!swiping && Math.abs(dy) > Math.abs(dx)) return;
+            if (dx > 0) return; // left-swipe only
+            swiping = true;
+            e.preventDefault();
+            currentX = Math.max(dx, -140);
+            card.style.transform = `translateX(${currentX}px)`;
+        }, { passive: false });
+
+        card.addEventListener('touchend', () => {
+            card.style.transition = 'transform 0.25s ease';
+            if (currentX < -threshold) {
+                // Reveal delete state
+                card.style.transform = 'translateX(-100px)';
+                card.classList.add('swipe-open');
+            } else {
+                card.style.transform = 'translateX(0)';
+                card.classList.remove('swipe-open');
+            }
+        });
+    });
+
+    // Tap on delete button (revealed behind card)
+    document.querySelectorAll('.swipe-delete-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const wIdx = parseInt(btn.dataset.index);
+            removeWorkout(wIdx);
+        });
+    });
+}
+
+// Close any open swipe on tap outside
+document.addEventListener('touchstart', e => {
+    document.querySelectorAll('.workout-card.swipe-open').forEach(card => {
+        if (!card.contains(e.target)) {
+            card.style.transition = 'transform 0.25s ease';
+            card.style.transform  = 'translateX(0)';
+            card.classList.remove('swipe-open');
+        }
+    });
+}, { passive: true });
+
 
 function toggleCard(wIdx, event) {
     if (expandedCards.has(wIdx)) {
@@ -572,8 +710,8 @@ function renderExercise() {
         <div class="set-btn-row">
             <button class="back-set-btn" onclick="prevSet()">${isFirst ? '✕' : '‹'}</button>
             ${isLastSet
-                ? `<button class="complete-btn" onclick="completeWorkout()">✅ Complete Workout</button>`
-                : `<button class="next-set-btn" onclick="nextSet()">Next Set</button>`
+                ? `<button class="complete-btn" onclick="completeWorkout()" ${!workoutInProgress ? 'disabled' : ''}>✅ Complete Workout</button>`
+                : `<button class="next-set-btn" onclick="nextSet()" ${!workoutInProgress ? 'disabled' : ''}>Next Set</button>`
             }
         </div>
         ${prevHTML}
@@ -1352,7 +1490,8 @@ function importProgressCSV(event) {
 function loadProgress() {
     const logDiv = document.getElementById('progress-log');
     logDiv.innerHTML = '';
-    progressLogs.forEach(log => {
+    // Newest to oldest
+    [...progressLogs].reverse().forEach(log => {
         logDiv.innerHTML += `
             <div>
                 <h4>${new Date(log.date).toLocaleDateString()} – ${log.workoutName || log.day || ''} – ${formatTime(log.duration)}</h4>

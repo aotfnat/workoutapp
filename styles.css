@@ -771,6 +771,125 @@ body:has(#workout-section.active) #floating-menu-btn {
 #hud-combo-btn.combo-stop  { background: #ff453a; color: #fff; }
 #hud-combo-btn.combo-reset { background: #636366; color: #fff; }
 
+
+/* ── Swipe-to-delete ─────────────────────────────────────────────── */
+.swipe-wrapper {
+    position: relative;
+    overflow: hidden;
+    border-radius: 14px;
+    margin-bottom: 14px;
+}
+.swipe-delete-btn {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 100px;
+    background: #ff453a;
+    color: #fff;
+    border: none;
+    font-size: 14px;
+    font-weight: 700;
+    border-radius: 0 14px 14px 0;
+    cursor: pointer;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 0;
+}
+.swipe-delete-btn:active { opacity: 0.8; }
+.workout-card {
+    position: relative;
+    z-index: 1;
+    margin-bottom: 0;  /* wrapper handles margin */
+    border-radius: 14px;
+    will-change: transform;
+}
+
+/* ── Disabled set / complete buttons ─────────────────────────────── */
+.next-set-btn:disabled,
+.complete-btn:disabled {
+    background: #aeaeb2;
+    cursor: default;
+    opacity: 0.6;
+}
+
+/* ── Monthly calendar ────────────────────────────────────────────── */
+.cal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+.cal-month-label {
+    font-size: 17px;
+    font-weight: 700;
+    color: #1c1c1e;
+}
+.cal-nav {
+    background: #f2f2f7;
+    color: #1c1c1e;
+    border: none;
+    border-radius: 8px;
+    font-size: 20px;
+    font-weight: 400;
+    padding: 4px 14px;
+    margin: 0;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+.cal-nav:active { opacity: 0.6; }
+
+.cal-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+}
+.cal-dow {
+    text-align: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: #8e8e93;
+    padding-bottom: 4px;
+}
+.cal-day {
+    position: relative;
+    aspect-ratio: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 500;
+    color: #1c1c1e;
+    border-radius: 8px;
+    background: #f9f9fb;
+}
+.cal-empty { background: transparent; }
+.cal-today {
+    background: #007aff;
+    color: #fff;
+    font-weight: 700;
+}
+.cal-worked {
+    background: rgba(48,209,88,0.18);
+    color: #1c1c1e;
+}
+.cal-today.cal-worked {
+    background: #007aff;  /* today takes priority */
+}
+.cal-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #30d158;
+    position: absolute;
+    bottom: 3px;
+}
+.cal-today .cal-dot { background: #fff; }
+
 /* ── Section heading menu button ────────────────────────────────── */
 .section-menu-btn {
     background: none;
