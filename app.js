@@ -653,6 +653,7 @@ function startWorkout() {
     if (btn) btn.remove();
     workoutStartTime  = Date.now();
     workoutInProgress = true;
+    renderExercise();
     startElapsedClock();
 }
 
