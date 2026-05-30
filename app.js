@@ -655,6 +655,7 @@ function startWorkout() {
     workoutInProgress = true;
     renderExercise();
     startElapsedClock();
+    startActivePhase()
 }
 
 // Start (or restart) the display-update interval using wall-clock time
