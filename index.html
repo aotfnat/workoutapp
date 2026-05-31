@@ -85,6 +85,22 @@
             <div id="progress-log"></div>
             <canvas id="progress-chart" width="400" height="250"></canvas>
         </div>
+
+        <!-- Settings -->
+        <div id="settings-section" class="tab-content">
+            <h2><button class="section-menu-btn" onclick="toggleMenu()">☰</button> ⚙️ Settings</h2>
+            <div class="settings-form">
+                <label>Weight<input type="number" id="user-weight"></label>
+                <label>Height (inches)<input type="number" id="user-height"></label>
+                <label>Workout Weight Units
+                    <select id="weight-unit">
+                        <option value="lb">Pounds (lb)</option>
+                        <option value="kg">Kilograms (kg)</option>
+                    </select>
+                </label>
+                <button onclick="saveSettings()">💾 Save Settings</button>
+            </div>
+        </div>
     </main>
 
 
@@ -105,6 +121,7 @@
         <button class="menu-item" data-tab="plan"     onclick="switchTab('plan')">📋  Plan</button>
         <button class="menu-item" data-tab="workout"  onclick="switchTab('workout')">🏋️  Workout</button>
         <button class="menu-item" data-tab="progress" onclick="switchTab('progress')">📈  Progress</button>
+        <button class="menu-item" data-tab="settings" onclick="switchTab('settings')">⚙️ Settings</button>
     </div>
 
     <!-- Timer settings side drawer (slides in from right) -->

@@ -294,7 +294,41 @@ button:disabled {
     margin-top: 8px;
 }
 
+/* ── Settings tab ──────────────────────────────────────────────── */
+.settings-form {
+    background: #fff;
+    border: 1px solid #d1d1d6;
+    border-radius: 14px;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
 
+.settings-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #3a3a3c;
+}
+
+.settings-form input,
+.settings-form select {
+    width: 100%;
+    padding: 12px;
+    font-size: 16px;
+    border: 1px solid #d1d1d6;
+    border-radius: 10px;
+    background: #fff;
+    color: #1c1c1e;
+}
+
+.settings-form button {
+    margin-top: 8px;
+    background: #30d158;
+}
 
 /* ── Hamburger menu button (inside HUD label row) ──────────────── */
 #menu-btn {

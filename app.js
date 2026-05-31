@@ -6,6 +6,14 @@ let currentWorkoutIndex = parseInt(localStorage.getItem('currentWorkoutIndex')) 
 let progressLogs        = JSON.parse(localStorage.getItem('progressLogs'))      || [];
 if (currentWorkoutIndex >= workoutPlan.length) currentWorkoutIndex = 0;
 
+// User Settings
+let userSettings = JSON.parse(localStorage.getItem('userSettings'))
+    || {
+        weight: '',
+        height: '',
+        weightUnit: 'lb'
+    };
+
 // Active workout state
 let currentWorkout       = [];
 let currentExerciseIndex = 0;
@@ -48,6 +56,7 @@ function switchTab(tabId) {
     if (tabId === 'plan')     loadPlan();
     if (tabId === 'workout')  resumeWorkoutTab();
     if (tabId === 'progress') loadProgress();
+    if (tabId === 'settings') loadSettings();
 }
 
 function toggleMenu(forceState) {
@@ -706,7 +715,7 @@ function renderExercise() {
     list.innerHTML = `
         <h3>${escHtml(ex.name)} – Set ${currentSet}/${ex.sets}</h3>
         <p class="goal-text">${goalText}</p>
-        <label>Weight (kg/lb):
+        <label>Weight (${userSettings.weightUnit}):
             <input type="number" step="0.5" id="weight-input" value="${ex.weights[currentSet-1] || ''}">
         </label>
         <div class="set-btn-row">
@@ -767,7 +776,8 @@ function completeWorkout() {
         workoutName: wo.name,
         workoutIndex: currentWorkoutIndex,
         exercises: currentWorkout,
-        duration: lapsedTime
+        duration: lapsedTime,
+        weightUnit: userSettings.weightUnit
     });
     localStorage.setItem('progressLogs', JSON.stringify(progressLogs));
     clearInterval(lapsedTimerInterval);
@@ -1498,7 +1508,7 @@ function loadProgress() {
         logDiv.innerHTML += `
             <div>
                 <h4>${new Date(log.date).toLocaleDateString()} – ${log.workoutName || log.day || ''} – ${formatTime(log.duration)}</h4>
-                ${log.exercises.map(ex => `<p>${escHtml(ex.name)}: ${ex.weights.join(', ')} kg</p>`).join('')}
+                ${log.exercises.map(ex => `<p>${escHtml(ex.name)}: ${ex.weights.join(', ')} ${log.weightUnit || userSettings.weightUnit}</p>`).join('')}
             </div>`;
     });
     renderChart();
@@ -1532,6 +1542,34 @@ function getRandomColor() {
 
 function formatTime(s) {
     return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+}
+
+// ── Settings TAB ─────────────────────────────────────────────────
+function loadSettings() {
+    document.getElementById('user-weight').value =
+        userSettings.weight;
+    document.getElementById('user-height').value =
+        userSettings.height;
+    document.getElementById('weight-unit').value =
+        userSettings.weightUnit;
+}
+
+function saveSettings() {
+    userSettings.weight =
+        parseFloat(document.getElementById('user-weight').value) || '';
+    userSettings.height =
+        parseFloat(document.getElementById('user-height').value) || '';
+    userSettings.weightUnit =
+        document.getElementById('weight-unit').value;
+    localStorage.setItem(
+        'userSettings',
+        JSON.stringify(userSettings)
+    );
+
+    renderExercise();
+    loadProgress();
+
+    alert('Settings saved!');
 }
 
 // ── BOOT ─────────────────────────────────────────────────────────
