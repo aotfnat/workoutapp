@@ -1,5 +1,16 @@
 // app.js
 
+// ── Schema version guard ─────────────────────────────────────────
+// Bump SCHEMA_VERSION whenever the data model changes in a breaking way.
+const SCHEMA_VERSION = '5';  // Phase 4: Work/Power calculation stored in log, two-chart progress tab
+const storedVersion  = localStorage.getItem('schemaVersion');
+if (storedVersion !== SCHEMA_VERSION) {
+    localStorage.removeItem('workoutPlan');
+    localStorage.removeItem('currentWorkoutIndex');
+    localStorage.removeItem('progressLogs');
+    localStorage.setItem('schemaVersion', SCHEMA_VERSION);
+}
+
 // ── Data ────────────────────────────────────────────────────────
 let workoutPlan         = JSON.parse(localStorage.getItem('workoutPlan'))      || [];
 let currentWorkoutIndex = parseInt(localStorage.getItem('currentWorkoutIndex')) || 0;
@@ -9,32 +20,247 @@ if (currentWorkoutIndex >= workoutPlan.length) currentWorkoutIndex = 0;
 // User Settings
 let userSettings = JSON.parse(localStorage.getItem('userSettings'))
     || {
-        weight: '',
-        height: '',
-        weightUnit: 'lb'
+        weight:     '',
+        height:     '',
+        weightUnit: 'lb',
+        heightUnit: 'in'
     };
+if (!userSettings.heightUnit) userSettings.heightUnit = 'in';
 
-// Active workout state
-let currentWorkout       = [];
+// ── Body-weight helpers ──────────────────────────────────────────
+function getUserWeightInWorkingUnit() {
+    const w = parseFloat(userSettings.weight);
+    if (!w) return null;
+    return w;
+}
+
+function getBodyWeightForce(ex) {
+    const bw = getUserWeightInWorkingUnit();
+    if (bw === null || ex.bodyWeightPct === undefined) return null;
+    return bw * ex.bodyWeightPct;
+}
+
+function formatBodyWeightForce(ex) {
+    const force = getBodyWeightForce(ex);
+    if (force === null) return '<span style="color:#ff9f0a">⚠ Enter weight in Settings</span>';
+    return `${force.toFixed(1)} ${userSettings.weightUnit}`;
+}
+
+function getUserHeightInches() {
+    const h = parseFloat(userSettings.height);
+    if (!h) return null;
+    if (userSettings.heightUnit === 'cm') return h / 2.54;
+    return h;
+}
+
+// ── Work / Power / Tension Load calculation helpers ───────────────
+//
+// Unit system:
+//   Metric  (kg + cm):  force in Newtons (kg × 9.81), distance in metres  → Work in Joules
+//   Imperial (lb + in): force in lbf,                 distance in feet     → Work in ft-lbf
+//
+// isometric: no mechanical work; returns Tension Load = force × duration (lbf·s or N·s)
+//
+// All functions that compute "work" return { workJ, powerW, tensionLoad, isIsometric }
+// where exactly one of (workJ | tensionLoad) is non-null and powerW is null for isometric.
+
+function isMetric() {
+    return userSettings.weightUnit === 'kg';
+}
+
+// Returns force in N (metric) or lbf (imperial) from user body-weight + added weight.
+function calcForce(ex, addedWeight) {
+    const bw = getUserWeightInWorkingUnit() || 0;
+    const rawForce = bw * (ex.bodyWeightPct || 0) + (addedWeight || 0);
+    if (isMetric()) return rawForce * 9.81;   // kg → N
+    return rawForce;                           // lb stays lbf
+}
+
+// Returns distance per rep in metres (metric) or feet (imperial).
+function calcDistPerRep(ex) {
+    const h = parseFloat(userSettings.height);
+    if (!h || ex.heightPct === null || ex.heightPct === undefined) return null;
+    if (isMetric()) {
+        // height in cm → metres
+        const heightM = (userSettings.heightUnit === 'cm') ? h / 100 : h * 0.0254;
+        return heightM * (ex.heightPct || 0);
+    } else {
+        // height in inches → feet
+        const heightIn = (userSettings.heightUnit === 'cm') ? h / 2.54 : h;
+        return heightIn * (ex.heightPct || 0) / 12;
+    }
+}
+
+// Returns distance in metres (metric) or feet (imperial) for distance exercises.
+function calcDistMeters(ex, distInput) {
+    const d = distInput || ex.distanceM || ex.target || 0;
+    if (isMetric()) return d;              // stored in metres
+    return d * 3.28084;                   // metres → feet for imperial display
+}
+
+// Main per-set calculation.
+// Returns { workJ: number|null, powerW: number|null, tensionLoad: number|null }
+// workJ / powerW are in J (metric) or ft-lbf (imperial).
+// tensionLoad is in N·s (metric) or lbf·s (imperial).
+function calcSetMetrics(ex, addedWeight, repsOrDist, setTimeSec) {
+    const force = calcForce(ex, addedWeight);
+
+    if (ex.type === 'isometric') {
+        const dur = setTimeSec || ex.target || 0;
+        return { workJ: null, powerW: null, tensionLoad: force * dur };
+    }
+
+    let dist = 0;
+    if (ex.unit === 'meters') {
+        dist = calcDistMeters(ex, repsOrDist);
+    } else {
+        // rep-based or timed-isotonic (repsOrDist = number of reps)
+        const distPerRep = calcDistPerRep(ex);
+        if (distPerRep === null) return { workJ: null, powerW: null, tensionLoad: null };
+        dist = (repsOrDist || 0) * distPerRep;
+    }
+
+    const workJ = force * dist;
+    const powerW = (setTimeSec && setTimeSec > 0) ? workJ / setTimeSec : null;
+    return { workJ, powerW, tensionLoad: null };
+}
+
+// Convenience: calculate work from a completed exercise object (all sets summed).
+// Returns { totalWork, totalPower, totalTensionLoad, isIsometric }
+function calcExerciseTotals(ex) {
+    let totalWork = 0, totalPower = 0, totalTension = 0;
+    let powerCount = 0;
+    const isIso = ex.type === 'isometric';
+
+    for (let i = 0; i < (ex.sets || 0); i++) {
+        const addedW    = (ex.weights     || [])[i] || 0;
+        const setTimeSec = (ex.setTimes   || [])[i] || 0;
+        let repsOrDist  = 0;
+        if (!isIso) {
+            if (ex.unit === 'reps')   repsOrDist = ex.target || 0;
+            else if (ex.unit === 'meters') repsOrDist = ex.distanceM || ex.target || 0;
+            else repsOrDist = (ex.userInputs || [])[i] || 0;
+        }
+        const m = calcSetMetrics(ex, addedW, repsOrDist, setTimeSec);
+        if (isIso) {
+            totalTension += m.tensionLoad || 0;
+        } else {
+            totalWork += m.workJ || 0;
+            if (m.powerW !== null) { totalPower += m.powerW; powerCount++; }
+        }
+    }
+
+    return {
+        totalWork:    isIso ? null        : totalWork,
+        totalPower:   isIso ? null        : (powerCount > 0 ? totalPower / powerCount : null),
+        totalTension: isIso ? totalTension : null,
+        isIsometric:  isIso
+    };
+}
+
+// ── HUD running total (display only) ─────────────────────────────
+// Keeps using the same calcSetMetrics so display matches stored values.
+function calcSetWork(ex, addedWeight, repsOrDist, setTimeSec) {
+    if (!ex || ex.phase !== 'work') return 0;
+    const m = calcSetMetrics(ex, addedWeight, repsOrDist, setTimeSec);
+    return m.workJ || m.tensionLoad || 0;
+}
+
+// Label for the work unit shown in the HUD
+function workUnitLabel() {
+    return isMetric() ? 'J' : 'ft-lbf';
+}
+
+// ── Workout state ─────────────────────────────────────────────────
+let currentWorkout       = [];   // deep copy of exercises for this session
 let currentExerciseIndex = 0;
 let currentSet           = 1;
 let lapsedTimerInterval  = null;
-let lapsedTime           = 0;      // seconds elapsed (kept in sync for logging)
-let workoutStartTime     = null;   // wall-clock ms when workout started (Date.now())
-let workoutInProgress    = false;  // true once Start Workout is tapped
+let lapsedTime           = 0;
+let workoutStartTime     = null;
+let workoutInProgress    = false;
 
-// ── Active/Rest timer state ───────────────────────────────────────
-// Phase: 'active' | 'rest' | 'idle'
-let timerPhase          = 'idle';
+// Per-set tracking (for power calculation in Phase 4)
+// setStartTime: timestamp when the active period of this set began (count-up or countdown start)
+let setStartTime         = null;
+// setElapsedSec[exerciseIndex][setIndex] = seconds the active period took
+// This gets stored on the exercise object as ex.setTimes[]
+// ex.userInputs[setIndex] = reps or distance entered for timed-isotonic sets
+
+// Running work total for the Work phase
+let runningWorkTotal     = 0;
+
+// ── In-progress workout persistence ──────────────────────────────
+// Saved to localStorage on every nextSet() so data survives app eviction.
+// Auto-completed silently if last activity was > 3 hours ago.
+const AUTO_COMPLETE_MS = 3 * 60 * 60 * 1000; // 3 hours
+
+function saveInProgressWorkout() {
+    if (!workoutInProgress) return;
+    const state = {
+        workoutIndex:         currentWorkoutIndex,
+        workoutName:          workoutPlan[currentWorkoutIndex]?.name || '',
+        currentWorkout:       currentWorkout,
+        currentExerciseIndex: currentExerciseIndex,
+        currentSet:           currentSet,
+        lapsedTime:           lapsedTime,
+        workoutStartTime:     workoutStartTime,
+        runningWorkTotal:     runningWorkTotal,
+        lastActivityTime:     Date.now(),
+        weightUnit:           userSettings.weightUnit
+    };
+    localStorage.setItem('inProgressWorkout', JSON.stringify(state));
+}
+
+function clearInProgressWorkout() {
+    localStorage.removeItem('inProgressWorkout');
+}
+
+function restoreInProgressWorkout() {
+    const raw = localStorage.getItem('inProgressWorkout');
+    if (!raw) return false;
+    let state;
+    try { state = JSON.parse(raw); } catch(e) { clearInProgressWorkout(); return false; }
+
+    // Auto-complete silently if last activity was more than 3 hours ago
+    if (Date.now() - state.lastActivityTime > AUTO_COMPLETE_MS) {
+        // Reconstruct enough state to complete the workout, then auto-complete
+        currentWorkoutIndex  = state.workoutIndex;
+        currentWorkout       = state.currentWorkout || [];
+        currentExerciseIndex = Math.min(state.currentExerciseIndex, currentWorkout.length - 1);
+        currentSet           = state.currentSet || 1;
+        lapsedTime           = state.lapsedTime || 0;
+        workoutStartTime     = state.workoutStartTime;
+        runningWorkTotal     = state.runningWorkTotal || 0;
+        workoutInProgress    = true;
+        clearInProgressWorkout();
+        completeWorkout(true); // silent — no confirm dialog
+        return true;
+    }
+
+    // Restore full state
+    currentWorkoutIndex  = state.workoutIndex;
+    currentWorkout       = state.currentWorkout || [];
+    currentExerciseIndex = Math.min(state.currentExerciseIndex, currentWorkout.length - 1);
+    currentSet           = state.currentSet || 1;
+    lapsedTime           = state.lapsedTime || 0;
+    workoutStartTime     = state.workoutStartTime;
+    runningWorkTotal     = state.runningWorkTotal || 0;
+    workoutInProgress    = true;
+    return true;
+}
+
+// ── Timer state machine ───────────────────────────────────────────
+// timerMode: 'idle' | 'rest' | 'countdown' | 'countup' | 'paused-rest' | 'paused-countdown' | 'paused-countup' | 'waiting-input'
+let timerMode           = 'idle';
 let timerInterval       = null;
-let timerRemaining      = 0;
-let selectedActiveDuration = 60;   // seconds
-let selectedRestDuration   = 55;   // seconds
-let timerOrder = 'rest-first';   // 'active-first' | 'rest-first'
-let soundEnabled = JSON.parse(localStorage.getItem('soundEnabled') ?? 'true');          // whistle on active start, buzzer on active end
+let timerRemaining      = 0;   // for countdown/rest: seconds left
+let timerElapsed        = 0;   // for countup: seconds elapsed
+let currentRestDuration = 0;   // full rest duration for the current rest phase (for reset)
+let currentActiveDuration = 0; // full active countdown duration for the current active phase (for reset)
 
-// Chart
-let chartInstance = null;
+let soundEnabled = JSON.parse(localStorage.getItem('soundEnabled') ?? 'true');
+
 
 // Plan tab — which workout cards are expanded (by wIdx)
 let expandedCards = new Set();
@@ -43,7 +269,6 @@ let expandedCards = new Set();
 let currentTab = 'calendar';
 
 function switchTab(tabId) {
-    // Do NOT clear the lapsed timer when leaving — let it keep running
     document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
     document.getElementById(`${tabId}-section`).classList.add('active');
     document.querySelectorAll('.menu-item').forEach(btn => {
@@ -80,7 +305,7 @@ function savePlanWithAlert() { savePlan(); alert('Plan saved!'); }
 
 // ── CALENDAR ─────────────────────────────────────────────────────
 let calendarYear  = new Date().getFullYear();
-let calendarMonth = new Date().getMonth(); // 0-based
+let calendarMonth = new Date().getMonth();
 
 function loadCalendar() {
     renderCalendar(calendarYear, calendarMonth);
@@ -89,7 +314,6 @@ function loadCalendar() {
 function renderCalendar(year, month) {
     const container = document.getElementById('calendar-view');
 
-    // Build set of "YYYY-MM-DD" strings from progressLogs
     const workedDays = new Set(
         progressLogs.map(log => log.date ? log.date.slice(0, 10) : null).filter(Boolean)
     );
@@ -97,7 +321,7 @@ function renderCalendar(year, month) {
     const today      = new Date();
     const firstDay   = new Date(year, month, 1);
     const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const startDow   = firstDay.getDay(); // 0=Sun
+    const startDow   = firstDay.getDay();
 
     const monthName = firstDay.toLocaleString('default', { month: 'long', year: 'numeric' });
 
@@ -117,7 +341,6 @@ function renderCalendar(year, month) {
             <div class="cal-dow">Sa</div>
     `;
 
-    // Empty cells before first day
     for (let i = 0; i < startDow; i++) {
         html += `<div class="cal-day cal-empty"></div>`;
     }
@@ -155,7 +378,6 @@ function loadPlan() {
     }
 
     workoutPlan.forEach((workout, wIdx) => {
-        // Swipe-delete wrapper
         const wrapper = document.createElement('div');
         wrapper.className = 'swipe-wrapper';
         const delBtn = document.createElement('button');
@@ -187,30 +409,11 @@ function loadPlan() {
                 <span class="collapse-chevron">${isExpanded ? '▲' : '▼'}</span>
             </div>
             <div class="card-body" id="card-body-${wIdx}" style="display:${isExpanded ? 'block' : 'none'};">
-                <div class="exercise-list" id="ex-list-${wIdx}"></div>
-                <div class="card-actions">
-                    <button onclick="addExercise(${wIdx})">＋ Add Exercise</button>
-                </div>
+                ${renderPhaseSection(workout, wIdx, 'warmup',   '🌡 Warmup')}
+                ${renderPhaseSection(workout, wIdx, 'work',     '💪 Work')}
+                ${renderPhaseSection(workout, wIdx, 'cooldown', '❄️ Cooldown')}
             </div>
         `;
-
-        // Populate exercises
-        const exList = card.querySelector(`#ex-list-${wIdx}`);
-        workout.exercises.forEach((ex, eIdx) => {
-            const unitLabel = { reps:'reps', seconds:'sec', minutes:'min', meters:'m' }[ex.unit] || 'reps';
-            const row = document.createElement('div');
-            row.className = 'exercise';
-            row.innerHTML = `
-                <input type="text" value="${escHtml(ex.name)}"
-                    onchange="updateExercise(${wIdx}, ${eIdx}, 'name', this.value)" placeholder="Exercise">
-                <label>Sets <input type="number" min="1" value="${ex.sets}"
-                    onchange="updateExercise(${wIdx}, ${eIdx}, 'sets', this.value)"></label>
-                <label>Target <input type="number" min="1" value="${ex.target}"
-                    onchange="updateExercise(${wIdx}, ${eIdx}, 'target', this.value)"> ${unitLabel}</label>
-                <button class="icon-btn danger" onclick="removeExercise(${wIdx}, ${eIdx})" title="Remove">✕</button>
-            `;
-            exList.appendChild(row);
-        });
 
         wrapper.appendChild(delBtn);
         wrapper.appendChild(card);
@@ -221,12 +424,77 @@ function loadPlan() {
     initSwipeToDelete();
 }
 
+// Render one phase section (Warmup / Work / Cooldown) inside a workout card
+function renderPhaseSection(workout, wIdx, phase, label) {
+    const phaseExercises = workout.exercises
+        .map((ex, eIdx) => ({ ex, eIdx }))
+        .filter(({ ex }) => (ex.phase || 'work') === phase);
+
+    const exRows = phaseExercises.map(({ ex, eIdx }) =>
+        renderExerciseRow(ex, wIdx, eIdx)
+    ).join('');
+
+    return `
+        <div class="phase-section">
+            <div class="phase-header">
+                <span class="phase-label">${label}</span>
+                <button class="phase-add-btn" onclick="addExercise(${wIdx}, '${phase}')">＋ Add</button>
+            </div>
+            <div class="phase-ex-list" id="phase-${wIdx}-${phase}">
+                ${exRows || `<p class="phase-empty">No exercises yet</p>`}
+            </div>
+        </div>
+    `;
+}
+
+// Render a compact exercise summary row in the plan card
+function renderExerciseRow(ex, wIdx, eIdx) {
+    const typeTag  = ex.type === 'isometric'
+        ? '<span class="ex-tag ex-tag-iso">ISO</span>'
+        : '<span class="ex-tag ex-tag-ton">TON</span>';
+
+    const bwForce = getBodyWeightForce(ex);
+    const bwText  = bwForce !== null
+        ? `${bwForce.toFixed(1)} ${userSettings.weightUnit} BW`
+        : '⚠ set weight';
+
+    let targetText = '';
+    if (ex.type === 'isometric') {
+        targetText = `${ex.target}s × ${ex.sets} sets`;
+    } else if (ex.unit === 'reps') {
+        targetText = `${ex.target} reps × ${ex.sets} sets`;
+    } else if (ex.unit === 'meters') {
+        targetText = `${ex.target}m × ${ex.sets} sets`;
+    } else if (ex.unit === 'seconds') {
+        const timedLabel = ex.timedInput === 'distance' ? 'dist' : 'reps';
+        targetText = `${ex.target}s, log ${timedLabel} × ${ex.sets} sets`;
+    } else if (ex.unit === 'minutes') {
+        const timedLabel = ex.timedInput === 'distance' ? 'dist' : 'reps';
+        targetText = `${ex.target}min, log ${timedLabel} × ${ex.sets} sets`;
+    }
+
+    const restText = `Set rest: ${ex.setRestSec ?? 60}s · Ex rest: ${ex.exerciseRestSec ?? 90}s`;
+
+    return `
+        <div class="plan-ex-row" id="plan-ex-${wIdx}-${eIdx}">
+            <div class="plan-ex-main">
+                ${typeTag}
+                <span class="plan-ex-name">${escHtml(ex.name)}</span>
+                <button class="icon-btn plan-ex-edit-btn" onclick="editExercise(${wIdx}, ${eIdx})" title="Edit">✏️</button>
+                <button class="icon-btn danger" onclick="removeExercise(${wIdx}, ${eIdx})" title="Remove">✕</button>
+            </div>
+            <div class="plan-ex-detail">${targetText} · ${bwText}</div>
+            <div class="plan-ex-rest">${restText}</div>
+        </div>
+    `;
+}
+
 // ── Swipe-to-delete workout cards ────────────────────────────────
 function initSwipeToDelete() {
     document.querySelectorAll('.workout-card').forEach(card => {
         let startX = 0, startY = 0, currentX = 0;
         let swiping = false;
-        const threshold = 80;  // px to trigger delete reveal
+        const threshold = 80;
 
         card.addEventListener('touchstart', e => {
             startX  = e.touches[0].clientX;
@@ -239,9 +507,8 @@ function initSwipeToDelete() {
         card.addEventListener('touchmove', e => {
             const dx = e.touches[0].clientX - startX;
             const dy = e.touches[0].clientY - startY;
-            // Only activate on horizontal swipe (not scroll)
             if (!swiping && Math.abs(dy) > Math.abs(dx)) return;
-            if (dx > 0) return; // left-swipe only
+            if (dx > 0) return;
             swiping = true;
             e.preventDefault();
             currentX = Math.max(dx, -140);
@@ -251,7 +518,6 @@ function initSwipeToDelete() {
         card.addEventListener('touchend', () => {
             card.style.transition = 'transform 0.25s ease';
             if (currentX < -threshold) {
-                // Reveal delete state
                 card.style.transform = 'translateX(-100px)';
                 card.classList.add('swipe-open');
             } else {
@@ -261,7 +527,6 @@ function initSwipeToDelete() {
         });
     });
 
-    // Tap on delete button (revealed behind card)
     document.querySelectorAll('.swipe-delete-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const wIdx = parseInt(btn.dataset.index);
@@ -270,7 +535,6 @@ function initSwipeToDelete() {
     });
 }
 
-// Close any open swipe on tap outside
 document.addEventListener('touchstart', e => {
     document.querySelectorAll('.workout-card.swipe-open').forEach(card => {
         if (!card.contains(e.target)) {
@@ -291,7 +555,6 @@ function toggleCard(wIdx, event) {
     loadPlan();
 }
 
-// Advance the "next" pointer to the workout AFTER wIdx (wraps)
 function advanceToWorkout(wIdx) {
     currentWorkoutIndex = (wIdx + 1) % workoutPlan.length;
     savePlan();
@@ -306,7 +569,7 @@ function addWorkout() {
     const name = prompt('Workout name (e.g. "Push Day", "Cardio"):')?.trim();
     if (!name) return;
     workoutPlan.push({ name, exercises: [] });
-    expandedCards.add(workoutPlan.length - 1);  // auto-expand the new card
+    expandedCards.add(workoutPlan.length - 1);
     savePlan(); loadPlan();
 }
 
@@ -322,11 +585,8 @@ function removeWorkout(wIdx) {
     savePlan(); loadPlan();
 }
 
-// ── Exercise entry modal ─────────────────────────────────────────
-// Step flow: name → unit → target → sets → save
-// Each step renders inside #ex-modal-body
-
-let _exModal = {};   // working state across steps
+// ── Exercise form modal (Phase 2) ────────────────────────────────
+let _exModal = {};
 
 function exModalOpen() {
     document.getElementById('ex-modal-overlay').classList.add('open');
@@ -346,140 +606,349 @@ function exModalSetBody(html) {
     document.getElementById('ex-modal-body').innerHTML = html;
 }
 
-// ── Step 1: Name ─────────────────────────────────────────────────
-function addExercise(wIdx) {
-    _exModal = { wIdx };
-    exModalSetTitle('Exercise Name');
-    exModalSetBody(`
-        <input id="ex-name-input" class="ex-text-input" type="text"
-               placeholder="e.g. Bench Press" autocomplete="off">
-    `);
-    exModalOpen();
-    // Render a Next button in footer
-    document.querySelector('.ex-modal-footer').innerHTML = `
-        <button class="ex-modal-cancel" onclick="exModalCancel()">Cancel</button>
-        <button class="ex-modal-next"   onclick="exModalStep2()">Next →</button>
-    `;
-    setTimeout(() => document.getElementById('ex-name-input')?.focus(), 120);
-}
-
-function exModalStep2() {
-    const name = document.getElementById('ex-name-input')?.value.trim();
-    if (!name) { document.getElementById('ex-name-input').focus(); return; }
-    _exModal.name = name;
-
-    // ── Step 2: Unit ─────────────────────────────────────────────
-    exModalSetTitle('Unit');
-    exModalSetBody(`
-        <div class="ex-btn-grid ex-btn-grid-2">
-            <button class="ex-choice-btn" onclick="exModalStep3('reps')">🔢 Reps</button>
-            <button class="ex-choice-btn" onclick="exModalStep3('seconds')">⏱ Seconds</button>
-            <button class="ex-choice-btn" onclick="exModalStep3('minutes')">⏱ Minutes</button>
-            <button class="ex-choice-btn" onclick="exModalStep3('meters')">📏 Meters</button>
-        </div>
-    `);
-    document.querySelector('.ex-modal-footer').innerHTML = `
-        <button class="ex-modal-cancel" onclick="exModalCancel()">Cancel</button>
-        <button class="ex-modal-back"   onclick="addExercise(_exModal.wIdx); _exModal.name = '${escHtml(name)}'" style="display:none"></button>
-    `;
-}
-
-function exModalStep3(unit) {
-    _exModal.unit = unit;
-
-    // ── Step 3: Target quantity ───────────────────────────────────
-    const presets = {
-        reps:    [8, 10, 12, 15, 20],
-        seconds: [10, 20, 30, 45, 60],
-        minutes: [1, 2, 3, 5, 10],
-        meters:  [400, 500, 800, 1600, 2400]
+function addExercise(wIdx, phase) {
+    _exModal = { wIdx, phase: phase || 'work', editIdx: null };
+    const defaults = {
+        name: '', type: 'isotonic', phase: phase || 'work',
+        bodyWeightPct: 0, heightPct: null, distanceM: null,
+        unit: 'reps', target: 10, timedInput: 'reps',
+        sets: 3, setRestSec: 60, exerciseRestSec: 90
     };
-    const unitLabel = { reps:'Reps', seconds:'Seconds', minutes:'Minutes', meters:'Meters' }[unit];
-    const vals = presets[unit];
+    openExerciseForm('Add Exercise', defaults);
+}
 
-    exModalSetTitle(`Target — ${unitLabel}`);
+function editExercise(wIdx, eIdx) {
+    _exModal = { wIdx, phase: null, editIdx: eIdx };
+    const ex = workoutPlan[wIdx].exercises[eIdx];
+    openExerciseForm('Edit Exercise', ex);
+}
+
+function openExerciseForm(title, ex) {
+    exModalSetTitle(title);
+
+    const isoChecked  = ex.type === 'isometric' ? 'checked' : '';
+    const tonChecked  = ex.type !== 'isometric' ? 'checked' : '';
+
+    const phases = [
+        { val: 'warmup',   label: '🌡 Warmup' },
+        { val: 'work',     label: '💪 Work' },
+        { val: 'cooldown', label: '❄️ Cooldown' }
+    ];
+    const phaseOpts = phases.map(p =>
+        `<option value="${p.val}" ${(ex.phase || 'work') === p.val ? 'selected' : ''}>${p.label}</option>`
+    ).join('');
+
+    const unitOpts = ex.type === 'isometric'
+        ? `<option value="seconds" selected>Seconds</option>`
+        : `
+            <option value="reps"    ${ex.unit === 'reps'    ? 'selected' : ''}>Reps</option>
+            <option value="seconds" ${ex.unit === 'seconds' ? 'selected' : ''}>Seconds (timed set)</option>
+            <option value="minutes" ${ex.unit === 'minutes' ? 'selected' : ''}>Minutes (timed set)</option>
+            <option value="meters"  ${ex.unit === 'meters'  ? 'selected' : ''}>Meters (distance)</option>
+          `;
+
+    const isTimedSet = ex.type !== 'isometric' && (ex.unit === 'seconds' || ex.unit === 'minutes');
+    const timedVis   = isTimedSet ? '' : 'display:none';
+    const timedRepsChecked = (ex.timedInput !== 'distance') ? 'checked' : '';
+    const timedDistChecked = (ex.timedInput === 'distance') ? 'checked' : '';
+
+    const isDistanceBased = ex.unit === 'meters';
+    const heightVis = (ex.type !== 'isometric' && !isDistanceBased) ? '' : 'display:none';
+    const distanceVis = isDistanceBased ? '' : 'display:none';
+
+    const bwForce = getBodyWeightForce(ex);
+    const bwPreview = bwForce !== null
+        ? `${bwForce.toFixed(1)} ${userSettings.weightUnit}`
+        : '(enter weight in Settings)';
+
     exModalSetBody(`
-        <div class="ex-btn-grid ex-btn-grid-3">
-            ${vals.map(v => `<button class="ex-choice-btn" onclick="exModalStep4(${v})">${v}</button>`).join('')}
-            <button class="ex-choice-btn ex-manual-btn" onclick="exModalManualTarget()">✏️ Manual</button>
-        </div>
-        <div id="ex-manual-target-row" style="display:none; margin-top:14px;">
-            <input id="ex-target-input" class="ex-num-input" type="number"
-                   inputmode="numeric" pattern="[0-9]*" min="1" placeholder="Enter number">
-            <button class="ex-modal-next" onclick="exModalStep4FromInput()">Next →</button>
+        <div class="ex-form">
+            <div class="ex-form-section">
+                <label class="ex-form-label">Exercise name / library search</label>
+                <input id="ef-name" class="ex-text-input" type="text"
+                    placeholder="Type to search library…"
+                    value="${escHtml(ex.name)}" autocomplete="off"
+                    oninput="exFormLibrarySearch(this.value)">
+                <div id="ef-lib-results" class="ex-lib-results"></div>
+            </div>
+            <div class="ex-form-section">
+                <label class="ex-form-label">Exercise type</label>
+                <div class="ex-toggle-row">
+                    <label class="ex-toggle-opt">
+                        <input type="radio" name="ef-type" value="isotonic" ${tonChecked}
+                            onchange="exFormTypeChanged()"> Isotonic
+                    </label>
+                    <label class="ex-toggle-opt">
+                        <input type="radio" name="ef-type" value="isometric" ${isoChecked}
+                            onchange="exFormTypeChanged()"> Isometric
+                    </label>
+                </div>
+            </div>
+            <div class="ex-form-section">
+                <label class="ex-form-label" for="ef-phase">Phase</label>
+                <select id="ef-phase" class="ex-form-select">${phaseOpts}</select>
+            </div>
+            <div class="ex-form-section">
+                <label class="ex-form-label" for="ef-bwpct">
+                    Body weight % <span class="ex-form-hint">(0–100)</span>
+                </label>
+                <div class="ex-form-row">
+                    <input id="ef-bwpct" class="ex-num-input" type="number"
+                        min="0" max="100" step="1"
+                        value="${Math.round((ex.bodyWeightPct ?? 0) * 100)}"
+                        oninput="exFormUpdateBWPreview()">
+                    <span class="ex-form-unit">%</span>
+                    <span id="ef-bw-preview" class="ex-bw-preview">= ${bwPreview}</span>
+                </div>
+            </div>
+            <div id="ef-height-section" class="ex-form-section" style="${heightVis}">
+                <label class="ex-form-label" for="ef-heightpct">
+                    Height % per rep <span class="ex-form-hint">(0–100, e.g. squat ≈ 50)</span>
+                </label>
+                <div class="ex-form-row">
+                    <input id="ef-heightpct" class="ex-num-input" type="number"
+                        min="0" max="100" step="1"
+                        value="${ex.heightPct !== null && ex.heightPct !== undefined ? Math.round(ex.heightPct * 100) : ''}">
+                    <span class="ex-form-unit">%</span>
+                </div>
+            </div>
+            <div id="ef-distance-section" class="ex-form-section" style="${distanceVis}">
+                <label class="ex-form-label" for="ef-distance">
+                    Distance <span class="ex-form-hint">(meters)</span>
+                </label>
+                <div class="ex-form-row">
+                    <input id="ef-distance" class="ex-num-input" type="number"
+                        min="0" step="1"
+                        value="${ex.distanceM ?? ''}">
+                    <span class="ex-form-unit">m</span>
+                </div>
+            </div>
+            <div class="ex-form-section">
+                <label class="ex-form-label" for="ef-unit">Active period measured in</label>
+                <select id="ef-unit" class="ex-form-select" onchange="exFormUnitChanged()">${unitOpts}</select>
+            </div>
+            <div class="ex-form-section">
+                <label class="ex-form-label" for="ef-target" id="ef-target-label">
+                    Target <span class="ex-form-hint" id="ef-target-hint"></span>
+                </label>
+                <div class="ex-form-row">
+                    <input id="ef-target" class="ex-num-input" type="number"
+                        min="1" step="1" value="${ex.target ?? 10}">
+                    <span id="ef-target-unit" class="ex-form-unit"></span>
+                </div>
+            </div>
+            <div id="ef-timed-section" class="ex-form-section" style="${timedVis}">
+                <label class="ex-form-label">During timed set, user will log</label>
+                <div class="ex-toggle-row">
+                    <label class="ex-toggle-opt">
+                        <input type="radio" name="ef-timed-input" value="reps" ${timedRepsChecked}> Reps
+                    </label>
+                    <label class="ex-toggle-opt">
+                        <input type="radio" name="ef-timed-input" value="distance" ${timedDistChecked}> Distance
+                    </label>
+                </div>
+            </div>
+            <div class="ex-form-section">
+                <label class="ex-form-label" for="ef-sets">Number of sets</label>
+                <input id="ef-sets" class="ex-num-input" type="number"
+                    min="1" step="1" value="${ex.sets ?? 3}">
+            </div>
+            <div class="ex-form-section">
+                <label class="ex-form-label" for="ef-set-rest">
+                    Rest between sets <span class="ex-form-hint">(seconds)</span>
+                </label>
+                <div class="ex-form-row">
+                    <input id="ef-set-rest" class="ex-num-input" type="number"
+                        min="0" step="5" value="${ex.setRestSec ?? 60}">
+                    <span class="ex-form-unit">s</span>
+                </div>
+            </div>
+            <div class="ex-form-section">
+                <label class="ex-form-label" for="ef-ex-rest">
+                    Rest before this exercise <span class="ex-form-hint">(seconds)</span>
+                </label>
+                <div class="ex-form-row">
+                    <input id="ef-ex-rest" class="ex-num-input" type="number"
+                        min="0" step="5" value="${ex.exerciseRestSec ?? 90}">
+                    <span class="ex-form-unit">s</span>
+                </div>
+            </div>
         </div>
     `);
+
     document.querySelector('.ex-modal-footer').innerHTML = `
         <button class="ex-modal-cancel" onclick="exModalCancel()">Cancel</button>
+        <button class="ex-modal-next"   onclick="exFormSave()">Save ✓</button>
     `;
+
+    exModalOpen();
+    exFormUpdateTargetLabel();
+    setTimeout(() => document.getElementById('ef-name')?.focus(), 120);
 }
 
-function exModalManualTarget() {
-    const row = document.getElementById('ex-manual-target-row');
-    row.style.display = 'flex';
-    document.getElementById('ex-target-input').focus();
+function exFormLibrarySearch(query) {
+    const resultsEl = document.getElementById('ef-lib-results');
+    if (!resultsEl) return;
+    const q = query.trim();
+    if (!q) { resultsEl.innerHTML = ''; return; }
+    const matches = (typeof librarySearch === 'function') ? librarySearch(q).slice(0, 5) : [];
+    if (matches.length === 0) { resultsEl.innerHTML = ''; return; }
+    resultsEl.innerHTML = matches.map(m => `
+        <button class="ex-lib-result-btn" onclick="exFormApplyLibraryEntry(${JSON.stringify(m).replace(/"/g, '&quot;')})">
+            <span class="ex-lib-name">${escHtml(m.name)}</span>
+            <span class="ex-lib-meta">${m.category} · BW ${Math.round(m.bodyWeightPct * 100)}%${m.heightPct !== null ? ` · H ${Math.round(m.heightPct * 100)}%` : ''}</span>
+        </button>
+    `).join('');
 }
 
-function exModalStep4FromInput() {
-    const val = parseInt(document.getElementById('ex-target-input')?.value);
-    if (!val || val < 1) { document.getElementById('ex-target-input').focus(); return; }
-    exModalStep4(val);
+function exFormApplyLibraryEntry(entry) {
+    const nameEl = document.getElementById('ef-name');
+    if (nameEl) nameEl.value = entry.name;
+    const typeInputs = document.querySelectorAll('input[name="ef-type"]');
+    typeInputs.forEach(inp => { inp.checked = inp.value === entry.type; });
+    const bwEl = document.getElementById('ef-bwpct');
+    if (bwEl) bwEl.value = Math.round((entry.bodyWeightPct ?? 0) * 100);
+    const hEl = document.getElementById('ef-heightpct');
+    if (hEl) hEl.value = entry.heightPct !== null && entry.heightPct !== undefined
+        ? Math.round(entry.heightPct * 100) : '';
+    const unitEl = document.getElementById('ef-unit');
+    if (unitEl && entry.unit) unitEl.value = entry.unit;
+    const resultsEl = document.getElementById('ef-lib-results');
+    if (resultsEl) resultsEl.innerHTML = '';
+    exFormBWPreviewUpdate();
+    exFormUpdateTargetLabel();
+    exFormTypeChanged();
 }
 
-function exModalStep4(target) {
-    _exModal.target = target;
+function exFormUpdateBWPreview() { exFormBWPreviewUpdate(); }
 
-    // ── Step 4: Sets ─────────────────────────────────────────────
-    exModalSetTitle('Number of Sets');
-    exModalSetBody(`
-        <div class="ex-btn-grid ex-btn-grid-3">
-            ${[1,2,3,4,5].map(v => `<button class="ex-choice-btn" onclick="exModalSave(${v})">${v}</button>`).join('')}
-            <button class="ex-choice-btn ex-manual-btn" onclick="exModalManualSets()">✏️ Manual</button>
-        </div>
-        <div id="ex-manual-sets-row" style="display:none; margin-top:14px;">
-            <input id="ex-sets-input" class="ex-num-input" type="number"
-                   inputmode="numeric" pattern="[0-9]*" min="1" placeholder="Enter sets">
-            <button class="ex-modal-next" onclick="exModalSaveFromInput()">Save ✓</button>
-        </div>
-    `);
-    document.querySelector('.ex-modal-footer').innerHTML = `
-        <button class="ex-modal-cancel" onclick="exModalCancel()">Cancel</button>
-    `;
+function exFormBWPreviewUpdate() {
+    const pctEl = document.getElementById('ef-bwpct');
+    const previewEl = document.getElementById('ef-bw-preview');
+    if (!pctEl || !previewEl) return;
+    const pct = parseFloat(pctEl.value) / 100 || 0;
+    const bw  = getUserWeightInWorkingUnit();
+    if (bw === null) {
+        previewEl.textContent = '= (enter weight in Settings)';
+    } else {
+        previewEl.textContent = `= ${(bw * pct).toFixed(1)} ${userSettings.weightUnit}`;
+    }
 }
 
-function exModalManualSets() {
-    const row = document.getElementById('ex-manual-sets-row');
-    row.style.display = 'flex';
-    document.getElementById('ex-sets-input').focus();
+function exFormTypeChanged() {
+    const typeVal = document.querySelector('input[name="ef-type"]:checked')?.value || 'isotonic';
+    const unitEl  = document.getElementById('ef-unit');
+    if (!unitEl) return;
+    if (typeVal === 'isometric') {
+        unitEl.innerHTML = `<option value="seconds" selected>Seconds</option>`;
+        unitEl.disabled = true;
+        const hSec = document.getElementById('ef-height-section');
+        const dSec = document.getElementById('ef-distance-section');
+        const tSec = document.getElementById('ef-timed-section');
+        if (hSec) hSec.style.display = 'none';
+        if (dSec) dSec.style.display = 'none';
+        if (tSec) tSec.style.display = 'none';
+    } else {
+        unitEl.disabled = false;
+        if (unitEl.options.length === 1 && unitEl.options[0].value === 'seconds') {
+            unitEl.innerHTML = `
+                <option value="reps" selected>Reps</option>
+                <option value="seconds">Seconds (timed set)</option>
+                <option value="minutes">Minutes (timed set)</option>
+                <option value="meters">Meters (distance)</option>
+            `;
+        }
+        exFormUnitChanged();
+    }
+    exFormUpdateTargetLabel();
 }
 
-function exModalSaveFromInput() {
-    const val = parseInt(document.getElementById('ex-sets-input')?.value);
-    if (!val || val < 1) { document.getElementById('ex-sets-input').focus(); return; }
-    exModalSave(val);
+function exFormUnitChanged() {
+    const unitVal = document.getElementById('ef-unit')?.value || 'reps';
+    const typeVal = document.querySelector('input[name="ef-type"]:checked')?.value || 'isotonic';
+    const hSec    = document.getElementById('ef-height-section');
+    const dSec    = document.getElementById('ef-distance-section');
+    const tSec    = document.getElementById('ef-timed-section');
+    if (typeVal === 'isometric') return;
+    const isDistance = unitVal === 'meters';
+    const isTimed    = unitVal === 'seconds' || unitVal === 'minutes';
+    if (hSec) hSec.style.display = (!isDistance) ? '' : 'none';
+    if (dSec) dSec.style.display = isDistance ? '' : 'none';
+    if (tSec) tSec.style.display = isTimed ? '' : 'none';
+    exFormUpdateTargetLabel();
 }
 
-function exModalSave(sets) {
-    const { wIdx, name, unit, target } = _exModal;
-    workoutPlan[wIdx].exercises.push({ name, sets, target, unit, weights: [] });
+function exFormUpdateTargetLabel() {
+    const unitVal  = document.getElementById('ef-unit')?.value || 'reps';
+    const typeVal  = document.querySelector('input[name="ef-type"]:checked')?.value || 'isotonic';
+    const hintEl   = document.getElementById('ef-target-hint');
+    const unitText = document.getElementById('ef-target-unit');
+    if (!hintEl || !unitText) return;
+    if (typeVal === 'isometric' || unitVal === 'seconds') {
+        hintEl.textContent = '(duration per set)';
+        unitText.textContent = 'sec';
+    } else if (unitVal === 'minutes') {
+        hintEl.textContent = '(duration per set)';
+        unitText.textContent = 'min';
+    } else if (unitVal === 'meters') {
+        hintEl.textContent = '(distance per set)';
+        unitText.textContent = 'm';
+    } else {
+        hintEl.textContent = '(reps per set)';
+        unitText.textContent = 'reps';
+    }
+}
+
+function exFormSave() {
+    const name = document.getElementById('ef-name')?.value.trim();
+    if (!name) {
+        document.getElementById('ef-name')?.focus();
+        return;
+    }
+    const typeVal    = document.querySelector('input[name="ef-type"]:checked')?.value || 'isotonic';
+    const phaseVal   = document.getElementById('ef-phase')?.value || _exModal.phase || 'work';
+    const bwPctRaw   = parseFloat(document.getElementById('ef-bwpct')?.value) || 0;
+    const bodyWeightPct = Math.min(Math.max(bwPctRaw / 100, 0), 1);
+    const hPctEl  = document.getElementById('ef-heightpct');
+    const heightPct = hPctEl && hPctEl.closest('.ex-form-section').style.display !== 'none'
+        ? (parseFloat(hPctEl.value) / 100 || null)
+        : null;
+    const distEl   = document.getElementById('ef-distance');
+    const distanceM = distEl && distEl.closest('.ex-form-section').style.display !== 'none'
+        ? (parseFloat(distEl.value) || null)
+        : null;
+    const unit     = typeVal === 'isometric'
+        ? 'seconds'
+        : (document.getElementById('ef-unit')?.value || 'reps');
+    const target   = parseInt(document.getElementById('ef-target')?.value) || 10;
+    const timedInputEl = document.querySelector('input[name="ef-timed-input"]:checked');
+    const timedInput   = timedInputEl ? timedInputEl.value : 'reps';
+    const sets          = parseInt(document.getElementById('ef-sets')?.value) || 3;
+    const setRestSec    = parseInt(document.getElementById('ef-set-rest')?.value) ?? 60;
+    const exerciseRestSec = parseInt(document.getElementById('ef-ex-rest')?.value) ?? 90;
+
+    const exObj = {
+        name, type: typeVal, phase: phaseVal,
+        bodyWeightPct, heightPct, distanceM,
+        unit, target, timedInput,
+        sets, setRestSec, exerciseRestSec,
+        weights: []
+    };
+
+    const { wIdx, editIdx } = _exModal;
+    if (editIdx !== null && editIdx !== undefined) {
+        const existing = workoutPlan[wIdx].exercises[editIdx];
+        if (existing.weights && existing.weights.length === sets) {
+            exObj.weights = existing.weights;
+        }
+        workoutPlan[wIdx].exercises[editIdx] = exObj;
+    } else {
+        workoutPlan[wIdx].exercises.push(exObj);
+    }
+
     savePlan();
     exModalClose();
     loadPlan();
-}
-
-function addExercise(wIdx) {
-    _exModal = { wIdx };
-    exModalSetTitle('Exercise Name');
-    exModalSetBody(`
-        <input id="ex-name-input" class="ex-text-input" type="text"
-               placeholder="e.g. Bench Press" autocomplete="off">
-    `);
-    exModalOpen();
-    document.querySelector('.ex-modal-footer').innerHTML = `
-        <button class="ex-modal-cancel" onclick="exModalCancel()">Cancel</button>
-        <button class="ex-modal-next"   onclick="exModalStep2()">Next →</button>
-    `;
-    setTimeout(() => document.getElementById('ex-name-input')?.focus(), 120);
 }
 
 function updateExercise(wIdx, eIdx, field, value) {
@@ -580,11 +1049,7 @@ function onTouchEnd() {
     loadPlan();
 }
 
-
 // ── Previous accomplishment lookup ───────────────────────────────
-// Searches progressLogs in reverse for the most recent session that
-// used the same workout name and contains the same exercise name,
-// then returns the weight logged for the given set (0-based).
 function getPreviousAccomplishment(exName, setIndex) {
     const woName = workoutPlan[currentWorkoutIndex]?.name;
     for (let i = progressLogs.length - 1; i >= 0; i--) {
@@ -596,12 +1061,14 @@ function getPreviousAccomplishment(exName, setIndex) {
         const hasWeight = weight !== undefined && weight !== null && weight !== 0;
         const unitLabel = { reps:'reps', seconds:'sec', minutes:'min', meters:'m' }[found.unit] || 'reps';
         const date = new Date(log.date).toLocaleDateString();
+        const wu   = log.weightUnit || userSettings.weightUnit;
         return {
             date,
             target: found.target,
             unit:   found.unit,
             unitLabel,
-            weight: hasWeight ? weight : null
+            weight:     hasWeight ? weight : null,
+            weightUnit: wu
         };
     }
     return null;
@@ -609,7 +1076,6 @@ function getPreviousAccomplishment(exName, setIndex) {
 
 // ── WORKOUT TAB ───────────────────────────────────────────────────
 
-// Called on first visit or after completing/resetting a workout
 function loadWorkoutTab() {
     if (workoutPlan.length === 0) {
         document.getElementById('exercise-list').innerHTML =
@@ -617,36 +1083,43 @@ function loadWorkoutTab() {
         return;
     }
     const wo = workoutPlan[currentWorkoutIndex];
+    const phaseOrder = { warmup: 0, work: 1, cooldown: 2 };
     currentWorkout = JSON.parse(JSON.stringify(wo.exercises));
-    currentWorkout.forEach(ex => ex.weights = new Array(ex.sets).fill(0));
+    currentWorkout.sort((a, b) =>
+        (phaseOrder[a.phase || 'work'] ?? 1) - (phaseOrder[b.phase || 'work'] ?? 1)
+    );
+    currentWorkout.forEach(ex => {
+        ex.weights    = new Array(ex.sets).fill(0);
+        ex.setTimes   = new Array(ex.sets).fill(0);  // seconds per active period
+        ex.userInputs = new Array(ex.sets).fill(0);  // reps/dist logged for timed-isotonic
+    });
     currentExerciseIndex = 0;
-    currentSet        = 1;
-    lapsedTime        = 0;
-    workoutStartTime  = null;
-    workoutInProgress = false;
+    currentSet           = 1;
+    lapsedTime           = 0;
+    workoutStartTime     = null;
+    workoutInProgress    = false;
+    runningWorkTotal     = 0;
     document.getElementById('lapsed-time').textContent = formatTime(0);
+    updateWorkTotalDisplay();
     clearInterval(lapsedTimerInterval);
-    stopTimer();
-    resetTimerDisplay();
+    stopExerciseTimer();
     renderExercise();
     showStartButton();
+    updateHudPhaseLabel();
 }
 
-// Called every time the user navigates back to the workout tab
 function resumeWorkoutTab() {
     if (!workoutInProgress) {
-        // No workout started yet — fresh load
         loadWorkoutTab();
         return;
     }
-    // Workout is running — just re-sync the display, don't reset anything
     syncElapsedDisplay();
     renderExercise();
-    updateHudTimer();
+    updateHudTimerDisplay();
+    updateHudPhaseLabel();
 }
 
 function showStartButton() {
-    // Remove any existing button first to avoid duplicates
     document.getElementById('start-workout-btn')?.remove();
     const list = document.getElementById('exercise-list');
     const btn = document.createElement('button');
@@ -662,18 +1135,19 @@ function startWorkout() {
     if (btn) btn.remove();
     workoutStartTime  = Date.now();
     workoutInProgress = true;
+    runningWorkTotal  = 0;
+    updateWorkTotalDisplay();
     renderExercise();
     startElapsedClock();
-    startActivePhase()
+    // Start with the exercise rest of the first exercise, then go into its active period
+    startExerciseRestThenActive();
 }
 
-// Start (or restart) the display-update interval using wall-clock time
 function startElapsedClock() {
     clearInterval(lapsedTimerInterval);
     lapsedTimerInterval = setInterval(syncElapsedDisplay, 1000);
 }
 
-// Compute elapsed from wall clock — accurate after backgrounding
 function syncElapsedDisplay() {
     if (!workoutStartTime) return;
     lapsedTime = Math.floor((Date.now() - workoutStartTime) / 1000);
@@ -681,6 +1155,371 @@ function syncElapsedDisplay() {
     if (el) el.textContent = formatTime(lapsedTime);
 }
 
+// ── HUD helpers ───────────────────────────────────────────────────
+
+function updateHudPhaseLabel() {
+    const el = document.getElementById('hud-workout-phase');
+    if (!el) return;
+    if (currentExerciseIndex >= currentWorkout.length || currentWorkout.length === 0) {
+        el.textContent = '';
+        return;
+    }
+    const ex = currentWorkout[currentExerciseIndex];
+    const map = { warmup: '🌡 Warmup', work: '💪 Work', cooldown: '❄️ Cooldown' };
+    el.textContent = map[ex.phase || 'work'] || '';
+}
+
+function updateWorkTotalDisplay() {
+    const el = document.getElementById('hud-work-total');
+    if (!el) return;
+    if (runningWorkTotal <= 0) {
+        el.textContent = '';
+        return;
+    }
+    el.textContent = `Work: ${runningWorkTotal.toFixed(0)} ${workUnitLabel()}`;
+}
+
+// ── Per-exercise timer (Phase 3 complete rewrite) ─────────────────
+// Timer state: timerMode = 'idle'|'rest'|'countdown'|'countup'|'paused-rest'|
+//              'paused-countdown'|'paused-countup'|'waiting-input'
+
+function stopExerciseTimer() {
+    clearInterval(timerInterval);
+    timerInterval  = null;
+    timerMode      = 'idle';
+    timerRemaining = 0;
+    timerElapsed   = 0;
+    setStartTime   = null;
+    updateHudTimerDisplay();
+    updatePauseResumeBtn();
+}
+
+function updateHudTimerDisplay() {
+    const timerEl = document.getElementById('timer');
+    const labelEl = document.getElementById('timer-phase-label');
+    if (!timerEl) return;
+
+    timerEl.className = 'hud-time';
+
+    if (timerMode === 'rest' || timerMode === 'paused-rest') {
+        timerEl.textContent = formatTime(timerRemaining);
+        timerEl.classList.add('timer-rest');
+        if (timerRemaining <= 10 && timerMode === 'rest') timerEl.classList.add('low');
+        if (timerMode === 'paused-rest') timerEl.classList.add('paused');
+        if (labelEl) { labelEl.textContent = '😮‍💨 Rest'; labelEl.className = 'hud-label timer-label-rest'; }
+    } else if (timerMode === 'countdown' || timerMode === 'paused-countdown') {
+        timerEl.textContent = formatTime(timerRemaining);
+        timerEl.classList.add('timer-active');
+        if (timerMode === 'paused-countdown') timerEl.classList.add('paused');
+        if (labelEl) { labelEl.textContent = '🔥 Active'; labelEl.className = 'hud-label timer-label-active'; }
+    } else if (timerMode === 'countup' || timerMode === 'paused-countup') {
+        timerEl.textContent = formatTime(timerElapsed);
+        timerEl.classList.add('timer-active');
+        if (timerMode === 'paused-countup') timerEl.classList.add('paused');
+        if (labelEl) { labelEl.textContent = '🔥 Active'; labelEl.className = 'hud-label timer-label-active'; }
+    } else if (timerMode === 'waiting-input') {
+        timerEl.textContent = '✏️';
+        timerEl.classList.add('timer-active');
+        if (labelEl) { labelEl.textContent = '📝 Log set'; labelEl.className = 'hud-label timer-label-active'; }
+    } else {
+        // idle
+        timerEl.textContent = '--:--';
+        if (labelEl) { labelEl.textContent = '⏱ Timer'; labelEl.className = 'hud-label'; }
+    }
+
+    updatePauseResumeBtn();
+    updateHudComboBtn();
+}
+
+function updatePauseResumeBtn() {
+    const btn = document.getElementById('pause-resume-btn');
+    if (!btn) return;
+    const isPaused = timerMode === 'paused-rest' || timerMode === 'paused-countdown' || timerMode === 'paused-countup';
+    const isRunning = timerMode === 'rest' || timerMode === 'countdown' || timerMode === 'countup';
+    if (isRunning) {
+        btn.textContent = '⏸';
+        btn.style.display = 'block';
+    } else if (isPaused) {
+        btn.textContent = '▶';
+        btn.style.display = 'block';
+    } else {
+        btn.style.display = 'none';
+    }
+}
+
+function pauseResumeTimer() {
+    if (timerMode === 'rest') {
+        clearInterval(timerInterval);
+        timerInterval = null;
+        timerMode = 'paused-rest';
+    } else if (timerMode === 'countdown') {
+        clearInterval(timerInterval);
+        timerInterval = null;
+        timerMode = 'paused-countdown';
+    } else if (timerMode === 'countup') {
+        clearInterval(timerInterval);
+        timerInterval = null;
+        timerMode = 'paused-countup';
+    } else if (timerMode === 'paused-rest') {
+        timerMode = 'rest';
+        runRestTimer(timerRemaining);
+        return;
+    } else if (timerMode === 'paused-countdown') {
+        timerMode = 'countdown';
+        playWhistle();
+        runCountdownTimer(timerRemaining);
+        return;
+    } else if (timerMode === 'paused-countup') {
+        timerMode = 'countup';
+        playWhistle();
+        resumeCountupTimer();
+        return;
+    }
+    updateHudTimerDisplay();
+}
+
+// ── Rest timer ─────────────────────────────────────────────────────
+function runRestTimer(durationSec) {
+    clearInterval(timerInterval);
+    timerMode           = 'rest';
+    timerRemaining      = durationSec;
+    currentRestDuration = durationSec;   // remember full duration for reset
+    updateHudTimerDisplay();
+    timerInterval = setInterval(() => {
+        timerRemaining--;
+        updateHudTimerDisplay();
+        if (timerRemaining <= 3 && timerRemaining > 0) playBeep();
+        if (timerRemaining <= 0) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+            playWhistle();
+            startActiveTimer();
+        }
+    }, 1000);
+}
+
+// ── Start rest before first set of this exercise, then active ─────
+function startExerciseRestThenActive() {
+    if (currentExerciseIndex >= currentWorkout.length) return;
+    const ex = currentWorkout[currentExerciseIndex];
+    const restSec = ex.exerciseRestSec ?? 90;
+    if (restSec > 0) {
+        runRestTimer(restSec);
+    } else {
+        startActiveTimer();
+    }
+}
+
+// ── Start rest between sets, then active ──────────────────────────
+function startSetRestThenActive() {
+    if (currentExerciseIndex >= currentWorkout.length) return;
+    const ex = currentWorkout[currentExerciseIndex];
+    const restSec = ex.setRestSec ?? 60;
+    if (restSec > 0) {
+        runRestTimer(restSec);
+    } else {
+        startActiveTimer();
+    }
+}
+
+// ── Start the active period based on exercise type ─────────────────
+function startActiveTimer() {
+    if (currentExerciseIndex >= currentWorkout.length) return;
+    const ex = currentWorkout[currentExerciseIndex];
+    setStartTime = Date.now();
+
+    if (ex.type === 'isometric') {
+        // Countdown for isometric (always seconds)
+        runCountdownTimer(ex.target);
+    } else if (ex.unit === 'reps' || ex.unit === 'meters') {
+        // Count-up: stops when user presses Next Set
+        runCountupTimer();
+    } else if (ex.unit === 'seconds') {
+        // Timed isotonic: countdown seconds
+        runCountdownTimer(ex.target);
+    } else if (ex.unit === 'minutes') {
+        // Timed isotonic: countdown minutes→seconds
+        runCountdownTimer(ex.target * 60);
+    } else {
+        runCountupTimer();
+    }
+}
+
+function runCountdownTimer(durationSec) {
+    clearInterval(timerInterval);
+    timerMode             = 'countdown';
+    timerRemaining        = durationSec;
+    currentActiveDuration = durationSec;   // remember full duration for reset
+    updateHudTimerDisplay();
+    timerInterval = setInterval(() => {
+        timerRemaining--;
+        updateHudTimerDisplay();
+        if (timerRemaining <= 3 && timerRemaining > 0) playBeep();
+        if (timerRemaining <= 0) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+            playBuzzer();
+            onCountdownComplete();
+        }
+    }, 1000);
+}
+
+function runCountupTimer() {
+    // Fresh start: reset elapsed to zero, then run
+    timerElapsed = 0;
+    resumeCountupTimer();
+}
+
+function resumeCountupTimer() {
+    // Resume from current timerElapsed without resetting it
+    clearInterval(timerInterval);
+    timerMode = 'countup';
+    currentActiveDuration = 0; // countup has no fixed duration
+    updateHudTimerDisplay();
+    timerInterval = setInterval(() => {
+        timerElapsed++;
+        updateHudTimerDisplay();
+    }, 1000);
+}
+
+// Called when a countdown finishes (isometric or timed-isotonic)
+function onCountdownComplete() {
+    const ex = currentWorkout[currentExerciseIndex];
+    const setIdx = currentSet - 1;
+
+    // Preserve any weight the user prefilled during rest before re-rendering
+    const enteredWeight = parseFloat(document.getElementById('weight-input')?.value);
+    if (!isNaN(enteredWeight)) ex.weights[setIdx] = enteredWeight;
+
+    // Record set time
+    const setTimeSec = setStartTime ? Math.round((Date.now() - setStartTime) / 1000) : (ex.target || 0);
+    ex.setTimes[setIdx] = setTimeSec;
+    setStartTime = null;
+
+    if (ex.type === 'isometric') {
+        timerMode = 'waiting-input';
+        updateHudTimerDisplay();
+        renderExercise();
+    } else {
+        // Timed isotonic: need user to log reps or distance
+        timerMode = 'waiting-input';
+        updateHudTimerDisplay();
+        renderExercise();
+    }
+}
+
+// ── Next Set button handler ───────────────────────────────────────
+function nextSet() {
+    const ex = currentWorkout[currentExerciseIndex];
+    const setIdx = currentSet - 1;
+
+    // Save added weight
+    ex.weights[setIdx] = parseFloat(document.getElementById('weight-input')?.value) || 0;
+
+    // For count-up exercises, record the elapsed time now
+    if (timerMode === 'countup' || timerMode === 'paused-countup') {
+        const setTimeSec = setStartTime ? Math.round((Date.now() - setStartTime) / 1000) : timerElapsed;
+        ex.setTimes[setIdx] = setTimeSec;
+        setStartTime = null;
+    }
+
+    // For timed-isotonic (waiting-input), save the reps/distance the user entered
+    if (ex.type !== 'isometric' && (ex.unit === 'seconds' || ex.unit === 'minutes')) {
+        const inputVal = parseFloat(document.getElementById('timed-user-input')?.value) || 0;
+        ex.userInputs[setIdx] = inputVal;
+    }
+
+    // Accumulate work total (Work phase only)
+    if (ex.phase === 'work') {
+        const addedW    = ex.weights[setIdx];
+        const setTimeSec = ex.setTimes[setIdx];
+        let repsOrDist  = 0;
+        if (ex.type === 'isometric') {
+            repsOrDist = 0;
+        } else if (ex.unit === 'reps') {
+            repsOrDist = ex.target; // reps per set from plan
+        } else if (ex.unit === 'meters') {
+            repsOrDist = ex.distanceM || ex.target;
+        } else {
+            repsOrDist = ex.userInputs[setIdx];
+        }
+        runningWorkTotal += calcSetWork(ex, addedW, repsOrDist, setTimeSec);
+        updateWorkTotalDisplay();
+    }
+
+    clearInterval(timerInterval);
+    timerInterval = null;
+    timerMode     = 'idle';   // clear waiting-input before re-rendering so banners don't persist
+
+    // Advance to next set or exercise
+    if (currentSet < ex.sets) {
+        currentSet++;
+        saveInProgressWorkout();
+        renderExercise();
+        startSetRestThenActive();
+    } else {
+        // End of this exercise — move to next
+        currentExerciseIndex++;
+        currentSet = 1;
+        if (currentExerciseIndex >= currentWorkout.length) {
+            // Workout complete — trigger completion
+            stopExerciseTimer();
+            renderExercise();
+            updateHudPhaseLabel();
+            return;
+        }
+        saveInProgressWorkout();
+        renderExercise();
+        updateHudPhaseLabel();
+        startExerciseRestThenActive();
+    }
+}
+
+function prevSet() {
+    if (currentExerciseIndex === 0 && currentSet === 1) {
+        // Cancel workout
+        lapsedTime        = 0;
+        workoutStartTime  = null;
+        workoutInProgress = false;
+        runningWorkTotal  = 0;
+        clearInProgressWorkout();
+        clearInterval(lapsedTimerInterval);
+        stopExerciseTimer();
+        document.getElementById('lapsed-time').textContent = formatTime(0);
+        updateWorkTotalDisplay();
+        renderExercise();
+        showStartButton();
+        updateHudPhaseLabel();
+        return;
+    }
+    clearInterval(timerInterval);
+    timerInterval = null;
+    setStartTime  = null;
+
+    if (currentSet > 1) {
+        currentSet--;
+        // Between sets of the same exercise — rest duration is setRestSec
+        const restSec = currentWorkout[currentExerciseIndex].setRestSec ?? 60;
+        timerRemaining      = restSec;
+        currentRestDuration = restSec;
+    } else {
+        currentExerciseIndex--;
+        currentSet = currentWorkout[currentExerciseIndex].sets;
+        // Returning to a mid-exercise set — use setRestSec (exerciseRestSec only precedes set 1)
+        const restSec = currentSet === 1
+            ? (currentWorkout[currentExerciseIndex].exerciseRestSec ?? 90)
+            : (currentWorkout[currentExerciseIndex].setRestSec ?? 60);
+        timerRemaining      = restSec;
+        currentRestDuration = restSec;
+    }
+
+    timerMode = 'paused-rest';
+    updateHudTimerDisplay();
+    updateHudPhaseLabel();
+    renderExercise();
+}
+
+// ── Exercise card renderer ────────────────────────────────────────
 function renderExercise() {
     const list = document.getElementById('exercise-list');
     list.innerHTML = '';
@@ -692,323 +1531,176 @@ function renderExercise() {
     }
 
     const ex = currentWorkout[currentExerciseIndex];
-    const goalLabels = { reps:`Reps: ${ex.target}`, seconds:`Time: ${ex.target}s`,
-                         minutes:`Time: ${ex.target} min`, meters:`Distance: ${ex.target}m` };
-    const goalText = goalLabels[ex.unit] || `Target: ${ex.target}`;
+    const setIdx = currentSet - 1;
 
-    const isFirst = currentExerciseIndex === 0 && currentSet === 1;
+    const isFirst   = currentExerciseIndex === 0 && currentSet === 1;
+    const isLastSet = currentExerciseIndex === currentWorkout.length - 1 && currentSet === ex.sets;
 
-    const isLastSet = currentExerciseIndex === currentWorkout.length - 1
-                    && currentSet === ex.sets;
+    // Goal line
+    let goalText = '';
+    if (ex.type === 'isometric') {
+        goalText = `Tension Load: ${ex.target}s hold`;
+    } else if (ex.unit === 'reps') {
+        goalText = `Target: ${ex.target} reps`;
+    } else if (ex.unit === 'seconds') {
+        goalText = `Timed set: ${ex.target}s — log ${ex.timedInput === 'distance' ? 'distance' : 'reps'} after`;
+    } else if (ex.unit === 'minutes') {
+        goalText = `Timed set: ${ex.target} min — log ${ex.timedInput === 'distance' ? 'distance' : 'reps'} after`;
+    } else if (ex.unit === 'meters') {
+        goalText = `Distance: ${ex.distanceM || ex.target}m`;
+    }
 
-    const prev = getPreviousAccomplishment(ex.name, currentSet - 1);
+    // Phase badge
+    const phaseBadgeMap = { warmup: '🌡 Warmup', work: '💪 Work', cooldown: '❄️ Cooldown' };
+    const phaseBadge = phaseBadgeMap[ex.phase || 'work'] || '';
+
+    // Timed-isotonic input (shown in waiting-input mode)
+    const needsTimedInput = timerMode === 'waiting-input' && ex.type !== 'isometric'
+                            && (ex.unit === 'seconds' || ex.unit === 'minutes');
+    const timedInputLabel = ex.timedInput === 'distance'
+        ? `Distance completed (${userSettings.weightUnit === 'lb' ? 'ft' : 'm'})`
+        : 'Reps completed';
+
+    const timedInputHTML = needsTimedInput
+        ? `<div class="timed-input-block">
+               <p class="timed-input-label">⏱ Set complete! Log your ${ex.timedInput === 'distance' ? 'distance' : 'reps'}:</p>
+               <label>${timedInputLabel}:
+                   <input type="number" id="timed-user-input" class="timed-user-input" step="1" min="0"
+                       value="${ex.userInputs[setIdx] || ''}" placeholder="0">
+               </label>
+           </div>`
+        : '';
+
+    // Isometric waiting-input: just confirm weight and tap next
+    const isoWaitingHTML = (timerMode === 'waiting-input' && ex.type === 'isometric')
+        ? `<p class="timed-input-label">✅ Hold complete! Update added weight, then tap Next Set.</p>`
+        : '';
+
+    // Previous accomplishment
+    const prev = getPreviousAccomplishment(ex.name, setIdx);
     const prevHTML = prev
         ? `<div class="prev-accomplishment">
                <span class="prev-label">Last time (${prev.date})</span>
                <span class="prev-stats">
                    Target: ${prev.target} ${prev.unitLabel}
-                   ${prev.weight !== null ? ` · Weight: ${prev.weight} kg` : ''}
+                   ${prev.weight !== null ? ` · Added: ${prev.weight} ${prev.weightUnit}` : ''}
                </span>
            </div>`
         : `<div class="prev-accomplishment prev-none">No previous data for this set</div>`;
 
+    // For countup exercises, Next Set also stops the timer — label changes
+    const isCountup = timerMode === 'countup' || timerMode === 'paused-countup';
+    const nextLabel = isCountup ? 'Done — Next Set →' : 'Next Set →';
+
     list.innerHTML = `
-        <h3>${escHtml(ex.name)} – Set ${currentSet}/${ex.sets}</h3>
-        <p class="goal-text">${goalText}</p>
-        <label>Weight (${userSettings.weightUnit}):
-            <input type="number" step="0.5" id="weight-input" value="${ex.weights[currentSet-1] || ''}">
-        </label>
+        <h3>${escHtml(ex.name)}</h3>
+        <p class="goal-set-line">Set <span class="set-counter-num">${currentSet}/${ex.sets}</span> — ${goalText}</p>
+        <p class="weight-inline">Body weight load: ${formatBodyWeightForce(ex)} &nbsp;—&nbsp; Added weight (${userSettings.weightUnit}): <input type="number" step="0.5" id="weight-input" value="${ex.weights[setIdx] || ''}" class="weight-inline-input"></p>
+        ${isoWaitingHTML}
+        ${timedInputHTML}
         <div class="set-btn-row">
             <button class="back-set-btn" onclick="prevSet()">${isFirst ? '✕' : '‹'}</button>
             ${isLastSet
                 ? `<button class="complete-btn" onclick="completeWorkout()" ${!workoutInProgress ? 'disabled' : ''}>✅ Complete Workout</button>`
-                : `<button class="next-set-btn" onclick="nextSet()" ${!workoutInProgress ? 'disabled' : ''}>Next Set</button>`
+                : `<button class="next-set-btn" onclick="nextSet()" ${!workoutInProgress ? 'disabled' : ''}>${nextLabel}</button>`
             }
         </div>
         ${prevHTML}
     `;
-}
 
-function nextSet() {
-    const ex = currentWorkout[currentExerciseIndex];
-    ex.weights[currentSet-1] = parseFloat(document.getElementById('weight-input')?.value) || 0;
-    if (currentSet < ex.sets) { currentSet++; } else { currentExerciseIndex++; currentSet = 1; }
-    renderExercise();
-    // Auto-start fresh Active phase after each set
-    startFreshActivePhase();
-}
-
-function prevSet() {
-    // At the very first set of the first exercise — cancel the workout
-    if (currentExerciseIndex === 0 && currentSet === 1) {
-        lapsedTime        = 0;   // zero before clearing interval to block any stale tick
-        workoutStartTime  = null;
-        workoutInProgress = false;
-        clearInterval(lapsedTimerInterval);
-        stopTimer();
-        resetTimerDisplay();
-        document.getElementById('lapsed-time').textContent = formatTime(0);
-        renderExercise();
-        showStartButton();
-        return;
+    // Auto-focus timed input if shown
+    if (needsTimedInput) {
+        setTimeout(() => document.getElementById('timed-user-input')?.focus(), 120);
     }
-    // Go back one set, or to the last set of the previous exercise
-    if (currentSet > 1) {
-        currentSet--;
-    } else {
-        currentExerciseIndex--;
-        currentSet = currentWorkout[currentExerciseIndex].sets;
-    }
-    renderExercise();
 }
 
-function completeWorkout() {
+function completeWorkout(silent = false) {
     const wo = workoutPlan[currentWorkoutIndex];
-    if (!confirm(`Complete "${wo.name}"?\n\nThis will log your workout and advance to the next one.`)) return;
-    // Save the weight entered for the current (last) set before logging
+    if (!silent && !confirm(`Complete "${wo.name}"?\n\nThis will log your workout and advance to the next one.`)) return;
+
+    // Capture last set data
     const lastEx = currentWorkout[currentExerciseIndex];
     if (lastEx) {
-        lastEx.weights[currentSet - 1] = parseFloat(document.getElementById('weight-input')?.value) || 0;
+        const setIdx = currentSet - 1;
+        lastEx.weights[setIdx] = parseFloat(document.getElementById('weight-input')?.value) || 0;
+
+        // If countup was running, stop it and record time
+        if (timerMode === 'countup' || timerMode === 'paused-countup') {
+            const setTimeSec = setStartTime ? Math.round((Date.now() - setStartTime) / 1000) : timerElapsed;
+            lastEx.setTimes[setIdx] = setTimeSec;
+        }
+        if (lastEx.type !== 'isometric' && (lastEx.unit === 'seconds' || lastEx.unit === 'minutes')) {
+            lastEx.userInputs[setIdx] = parseFloat(document.getElementById('timed-user-input')?.value) || 0;
+        }
+
+        // Final work accumulation for last set
+        if (lastEx.phase === 'work') {
+            const addedW     = lastEx.weights[setIdx];
+            const setTimeSec = lastEx.setTimes[setIdx];
+            let repsOrDist   = lastEx.type === 'isometric' ? 0
+                : lastEx.unit === 'reps'   ? lastEx.target
+                : lastEx.unit === 'meters' ? (lastEx.distanceM || lastEx.target)
+                : lastEx.userInputs[setIdx];
+            runningWorkTotal += calcSetWork(lastEx, addedW, repsOrDist, setTimeSec);
+        }
     }
+
     syncElapsedDisplay();
+    clearInProgressWorkout();
+
+    // ── Phase 4: calculate per-exercise Work/Power and store in log ──
+    // Only Work-phase exercises count toward workout totals.
+    let workoutTotalWork   = 0;
+    let workoutTotalPower  = 0;
+    let workoutPowerCount  = 0;
+
+    const loggedExercises = currentWorkout.map(ex => {
+        const totals = calcExerciseTotals(ex);
+        // Accumulate workout totals (Work phase only)
+        if (ex.phase === 'work' && !totals.isIsometric) {
+            workoutTotalWork  += totals.totalWork  || 0;
+            if (totals.totalPower !== null) {
+                workoutTotalPower += totals.totalPower;
+                workoutPowerCount++;
+            }
+        }
+        return {
+            ...ex,
+            totalWork:    totals.totalWork,
+            totalPower:   totals.totalPower,
+            totalTension: totals.totalTension,
+            isIsometric:  totals.isIsometric
+        };
+    });
+
     progressLogs.push({
-        date: new Date().toISOString(),
-        workoutName: wo.name,
-        workoutIndex: currentWorkoutIndex,
-        exercises: currentWorkout,
-        duration: lapsedTime,
-        weightUnit: userSettings.weightUnit
+        date:             new Date().toISOString(),
+        workoutName:      wo.name,
+        workoutIndex:     currentWorkoutIndex,
+        exercises:        loggedExercises,
+        duration:         lapsedTime,
+        weightUnit:       userSettings.weightUnit,
+        heightUnit:       userSettings.heightUnit,
+        workoutTotalWork: workoutTotalWork,
+        workoutTotalPower: workoutPowerCount > 0 ? workoutTotalPower / workoutPowerCount : null
     });
     localStorage.setItem('progressLogs', JSON.stringify(progressLogs));
+
     clearInterval(lapsedTimerInterval);
     workoutStartTime  = null;
     workoutInProgress = false;
-    stopTimer();
+    runningWorkTotal  = 0;
+    stopExerciseTimer();
     currentWorkoutIndex = (currentWorkoutIndex + 1) % workoutPlan.length;
     savePlan();
-    // Auto-switch to Progress tab to show results
     switchTab('progress');
 }
 
-// ── ACTIVE / REST TIMER ───────────────────────────────────────────
-//
-// timerPhase values:
-//   'idle'          – not started / fully reset
-//   'active'        – active countdown running
-//   'rest'          – rest countdown running
-//   'paused-active' – active countdown paused mid-way
-//   'paused-rest'   – rest countdown paused mid-way
-//
-// timerRemaining always holds the current seconds left so resuming is exact.
-
-function resetTimerDisplay() {
-    clearInterval(timerInterval);
-    timerInterval  = null;
-    timerPhase     = 'idle';
-    timerRemaining = selectedActiveDuration;
-    updateHudTimer();
-}
-
-function updateHudTimer() {
-    const el    = document.getElementById('timer');
-    const label = document.getElementById('timer-phase-label');
-    if (!el) return;
-    el.textContent = formatTime(timerRemaining);
-    updateComboBtn();
-
-    el.className = 'hud-time';
-    if (timerPhase === 'active' || timerPhase === 'paused-active') {
-        el.classList.add('timer-active');
-        if (timerPhase === 'paused-active') el.classList.add('paused');
-        if (label) { label.textContent = '🔥 Active'; label.className = 'hud-label timer-label-active'; }
-    } else if (timerPhase === 'rest' || timerPhase === 'paused-rest') {
-        el.classList.add('timer-rest');
-        if (timerRemaining <= 10) el.classList.add('low');
-        if (timerPhase === 'paused-rest') el.classList.add('paused');
-        if (label) { label.textContent = '😮‍💨 Rest'; label.className = 'hud-label timer-label-rest'; }
-    } else {
-        // idle — show whichever phase fires first
-        if (timerOrder === 'rest-first') {
-            if (label) { label.textContent = '😮‍💨 Rest'; label.className = 'hud-label timer-label-rest'; }
-        } else {
-            if (label) { label.textContent = '🔥 Active'; label.className = 'hud-label timer-label-active'; }
-        }
-    }
-}
-
-// Always start fresh from the full duration, respecting timerOrder
-function startFreshActivePhase() {
-    clearInterval(timerInterval);
-    timerInterval  = null;
-    timerPhase     = 'idle';
-    if (timerOrder === 'rest-first') {
-        timerRemaining = selectedRestDuration;
-        startRestPhaseFirst();
-    } else {
-        timerRemaining = selectedActiveDuration;
-        startActivePhase();
-    }
-}
-
-// Rest-first variant: runs rest then active
-function startRestPhaseFirst() {
-    timerPhase     = 'rest';
-    timerRemaining = selectedRestDuration;
-    updateHudTimer();
-    timerInterval = setInterval(() => {
-        timerRemaining--;
-        updateHudTimer();
-        if (timerRemaining <= 0) {
-            clearInterval(timerInterval);
-            timerInterval = null;
-            startActivePhaseFromZero();
-        }
-    }, 1000);
-}
-
-// Active phase that follows rest (rest-first order)
-function startActivePhaseFromZero() {
-    timerPhase     = 'active';
-    timerRemaining = selectedActiveDuration;
-    updateHudTimer();
-    playWhistle();
-    timerInterval = setInterval(() => {
-        timerRemaining--;
-        updateHudTimer();
-        if (timerRemaining <= 0) {
-            clearInterval(timerInterval);
-            timerInterval  = null;
-            playBuzzer();
-            timerPhase     = 'idle';
-            timerRemaining = selectedRestDuration;
-            updateHudTimer();
-        }
-    }, 1000);
-}
-
-// Start active phase — resets to full duration always (use resumeTimer to resume)
-function startActivePhase() {
-    clearInterval(timerInterval);
-    timerRemaining = selectedActiveDuration;
-    timerPhase = 'active';
-    updateHudTimer();
-    playWhistle();
-    timerInterval = setInterval(() => {
-        timerRemaining--;
-        updateHudTimer();
-        if (timerRemaining <= 0) {
-            clearInterval(timerInterval);
-            timerInterval = null;
-            playBuzzer();
-            startRestPhaseFromZero();
-        }
-    }, 1000);
-}
-
-// Always starts rest from full rest duration (auto-transition from active)
-function startRestPhaseFromZero() {
-    timerPhase     = 'rest';
-    timerRemaining = selectedRestDuration;
-    updateHudTimer();
-    timerInterval = setInterval(() => {
-        timerRemaining--;
-        updateHudTimer();
-        if (timerRemaining <= 0) {
-            clearInterval(timerInterval);
-            timerInterval  = null;
-            timerPhase     = 'idle';
-            timerRemaining = selectedActiveDuration;
-            updateHudTimer();
-        }
-    }, 1000);
-}
-
-// Resume from wherever timerRemaining currently is (used by portrait ▶ and combo ▶)
-function resumeTimer() {
-    clearInterval(timerInterval);
-    const phase = timerPhase === 'paused-active' ? 'active' : 'rest';
-    timerPhase = phase;
-    updateHudTimer();
-    if (phase === 'active') playWhistle();
-    timerInterval = setInterval(() => {
-        timerRemaining--;
-        updateHudTimer();
-        if (timerRemaining <= 0) {
-            clearInterval(timerInterval);
-            timerInterval = null;
-            if (phase === 'active') playBuzzer();
-            if (timerOrder === 'active-first') {
-                // active → rest → idle
-                if (phase === 'active') {
-                    startRestPhaseFromZero();
-                } else {
-                    timerPhase     = 'idle';
-                    timerRemaining = selectedActiveDuration;
-                    updateHudTimer();
-                }
-            } else {
-                // rest → active → idle
-                if (phase === 'rest') {
-                    startActivePhaseFromZero();
-                } else {
-                    timerPhase     = 'idle';
-                    timerRemaining = selectedRestDuration;
-                    updateHudTimer();
-                }
-            }
-        }
-    }, 1000);
-}
-
-// Pause — preserve phase and remaining time
-function pauseTimer() {
-    clearInterval(timerInterval);
-    timerInterval = null;
-    if (timerPhase === 'active') timerPhase = 'paused-active';
-    if (timerPhase === 'rest')   timerPhase = 'paused-rest';
-    updateComboBtn();
-    updateHudTimer();
-}
-
-// Legacy stopTimer used elsewhere — now just pauses
-function stopTimer() {
-    pauseTimer();
-}
-
-// ── Timer settings side drawer ────────────────────────────────────
-
+// ── Timer drawer (simplified for Phase 3) ────────────────────────
 function openTimerDrawer() {
-    document.getElementById('active-duration-val').textContent = selectedActiveDuration;
-    document.getElementById('rest-duration-val').textContent   = selectedRestDuration;
-    updateTimerOrderUI();
     updateSoundUI();
     document.getElementById('timer-settings-overlay').classList.add('open');
     document.getElementById('timer-settings-drawer').classList.add('open');
-}
-
-function toggleTimerOrder() {
-    timerOrder = timerOrder === 'active-first' ? 'rest-first' : 'active-first';
-    updateTimerOrderUI();
-    // Reset display so HUD shows the correct first-phase label
-    if (timerPhase === 'idle') {
-        timerRemaining = timerOrder === 'active-first' ? selectedActiveDuration : selectedRestDuration;
-        updateHudTimer();
-    }
-}
-
-function updateTimerOrderUI() {
-    const label  = document.getElementById('timer-order-label');
-    const toggle = document.getElementById('timer-order-toggle');
-    if (!label || !toggle) return;
-    if (timerOrder === 'active-first') {
-        label.textContent = '🔥 Active → 😮‍💨 Rest';
-        toggle.classList.remove('order-rest-first');
-        toggle.classList.add('order-active-first');
-    } else {
-        label.textContent = '😮‍💨 Rest → 🔥 Active';
-        toggle.classList.remove('order-active-first');
-        toggle.classList.add('order-rest-first');
-    }
 }
 
 function closeTimerDrawer() {
@@ -1016,30 +1708,82 @@ function closeTimerDrawer() {
     document.getElementById('timer-settings-drawer').classList.remove('open');
 }
 
-function stepDuration(type, delta) {
-    const STEP = 5, MIN = 5, MAX = 600;
-    if (type === 'active') {
-        selectedActiveDuration = Math.min(MAX, Math.max(MIN, selectedActiveDuration + delta));
-        document.getElementById('active-duration-val').textContent = selectedActiveDuration;
+function resetTimerFromDrawer() {
+    clearInterval(timerInterval);
+    timerInterval = null;
+    setStartTime  = null;
+
+    // Determine what state we're in and reset to its starting value, staying paused
+    if (timerMode === 'rest' || timerMode === 'paused-rest') {
+        timerRemaining = currentRestDuration;
+        timerMode      = 'paused-rest';
+    } else if (timerMode === 'countdown' || timerMode === 'paused-countdown') {
+        timerRemaining = currentActiveDuration;
+        timerMode      = 'paused-countdown';
+    } else if (timerMode === 'countup' || timerMode === 'paused-countup') {
+        timerElapsed = 0;
+        timerMode    = 'paused-countup';
     } else {
-        selectedRestDuration = Math.min(MAX, Math.max(MIN, selectedRestDuration + delta));
-        document.getElementById('rest-duration-val').textContent = selectedRestDuration;
+        // idle / waiting-input — nothing meaningful to reset to; stay idle
+        timerMode = 'idle';
     }
-    // If idle, update display to reflect the first-phase duration
-    if (timerPhase === 'idle') {
-        timerRemaining = timerOrder === 'active-first' ? selectedActiveDuration : selectedRestDuration;
-        updateHudTimer();
+
+    updateHudTimerDisplay();
+    closeTimerDrawer();
+}
+
+// ── HUD landscape combo button ────────────────────────────────────
+function updateHudComboBtn() {
+    const btn = document.getElementById('hud-combo-btn');
+    if (!btn) return;
+    const isPaused  = timerMode === 'paused-rest' || timerMode === 'paused-countdown' || timerMode === 'paused-countup';
+    const isRunning = timerMode === 'rest' || timerMode === 'countdown' || timerMode === 'countup';
+    if (isRunning) {
+        btn.textContent = '⏸';
+        btn.className = 'combo-stop';
+    } else if (isPaused) {
+        btn.textContent = '▶';
+        btn.className = 'combo-start';
+    } else {
+        btn.textContent = '–';
+        btn.className = 'combo-reset';
     }
 }
 
+function hudComboAction() {
+    pauseResumeTimer();
+}
+
+// ── CSV download helper ───────────────────────────────────────────
+// iOS Safari in standalone PWA mode silently ignores a.click() on
+// programmatically-created anchors. The workaround is to use a
+// base64 data URL assigned to window.location.href — this works in
+// standalone mode and in mobile Safari, and falls back gracefully
+// in Chrome/Firefox where Blob URLs are fine.
+function triggerCSVDownload(csvContent, filename) {
+    try {
+        // Preferred: Blob URL + visible anchor dispatched as a real click event
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = filename;
+        a.style.position = 'fixed';
+        a.style.opacity  = '0';
+        document.body.appendChild(a);
+        a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 5000);
+    } catch (e) {
+        // Fallback: data URL via window.location (no custom filename but always works)
+        const encoded = encodeURIComponent(csvContent);
+        window.location.href = 'data:text/csv;charset=utf-8,' + encoded;
+    }
+}
 
 // ── CSV BACKUP & RESTORE ──────────────────────────────────────────
-
-// CSV columns: workout_index, workout_name, exercise_name, sets, target, unit
-const CSV_HEADER = 'workout_index,workout_name,exercise_name,sets,target,unit';
+const CSV_HEADER = 'workout_index,workout_name,exercise_name,type,phase,sets,target,unit,bodyWeightPct,heightPct,distanceM,setRestSec,exerciseRestSec,timedInput';
 
 function csvEscape(val) {
-    // Wrap in quotes if value contains comma, quote, or newline
     const s = String(val);
     if (s.includes(',') || s.includes('"') || s.includes('\n')) {
         return '"' + s.replace(/"/g, '""') + '"';
@@ -1052,114 +1796,88 @@ function exportPlanCSV() {
         alert('Nothing to export — your plan is empty.');
         return;
     }
-
     const rows = [CSV_HEADER];
     workoutPlan.forEach((wo, wIdx) => {
         if (wo.exercises.length === 0) {
-            // Export the workout shell even if it has no exercises
-            rows.push([csvEscape(wIdx), csvEscape(wo.name), '', '', '', ''].join(','));
+            rows.push([csvEscape(wIdx), csvEscape(wo.name), '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
         } else {
             wo.exercises.forEach(ex => {
                 rows.push([
                     csvEscape(wIdx),
                     csvEscape(wo.name),
                     csvEscape(ex.name),
+                    csvEscape(ex.type            || 'isotonic'),
+                    csvEscape(ex.phase           || 'work'),
                     csvEscape(ex.sets),
                     csvEscape(ex.target),
-                    csvEscape(ex.unit)
+                    csvEscape(ex.unit),
+                    csvEscape(ex.bodyWeightPct   ?? 0),
+                    csvEscape(ex.heightPct       ?? ''),
+                    csvEscape(ex.distanceM       ?? ''),
+                    csvEscape(ex.setRestSec      ?? 60),
+                    csvEscape(ex.exerciseRestSec ?? 90),
+                    csvEscape(ex.timedInput      || 'reps')
                 ].join(','));
             });
         }
     });
-
     const csvContent = rows.join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url  = URL.createObjectURL(blob);
-
-    // Build a filename with today's date
     const dateStr = new Date().toISOString().slice(0, 10);
-    const filename = `workout-plan-${dateStr}.csv`;
-
-    const a = document.createElement('a');
-    a.href     = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    triggerCSVDownload(csvContent, `workout-plan-${dateStr}.csv`);
 }
 
 function importPlanCSV(event) {
     const file = event.target.files[0];
     if (!file) return;
-
-    // Reset the input so the same file can be re-imported if needed
     event.target.value = '';
-
     const reader = new FileReader();
     reader.onload = function(e) {
         try {
             const text  = e.target.result;
             const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
-
-            if (lines.length < 2) {
-                alert('Import failed: the file appears to be empty or has no data rows.');
-                return;
-            }
-
-            // Validate header
+            if (lines.length < 2) { alert('Import failed: empty file.'); return; }
             const header = lines[0].trim().toLowerCase();
             if (!header.startsWith('workout_index,workout_name')) {
-                alert("Import failed: this doesn't look like a workout plan CSV.\nExpected header: " + CSV_HEADER);
+                alert("Import failed: unexpected header.\nExpected: " + CSV_HEADER);
                 return;
             }
-
-            // Parse rows
-            const parsed = {};  // keyed by workout_index → { name, exercises[] }
-            const dataLines = lines.slice(1);
-
-            for (let i = 0; i < dataLines.length; i++) {
-                const cols = parseCSVLine(dataLines[i]);
-                if (cols.length < 2) continue;
-
-                const wIdx      = cols[0].trim();
-                const wName     = cols[1].trim();
-                const exName    = (cols[2] || '').trim();
-                const sets      = parseInt(cols[3]) || 3;
-                const target    = parseInt(cols[4]) || 10;
-                const unit      = (cols[5] || 'reps').trim() || 'reps';
-
-                if (!parsed[wIdx]) {
-                    parsed[wIdx] = { name: wName, exercises: [] };
-                }
+            const parsed = {};
+            lines.slice(1).forEach(line => {
+                const cols = parseCSVLine(line);
+                if (cols.length < 2) return;
+                const wIdx            = cols[0].trim();
+                const wName           = cols[1].trim();
+                const exName          = (cols[2]  || '').trim();
+                const type            = (cols[3]  || 'isotonic').trim() || 'isotonic';
+                const phase           = (cols[4]  || 'work').trim()     || 'work';
+                const sets            = parseInt(cols[5])   || 3;
+                const target          = parseInt(cols[6])   || 10;
+                const unit            = (cols[7]  || 'reps').trim()     || 'reps';
+                const bodyWeightPct   = parseFloat(cols[8]) || 0;
+                const heightPct       = cols[9]?.trim()  !== '' ? parseFloat(cols[9])  : null;
+                const distanceM       = cols[10]?.trim() !== '' ? parseFloat(cols[10]) : null;
+                const setRestSec      = parseInt(cols[11]) || 60;
+                const exerciseRestSec = parseInt(cols[12]) || 90;
+                const timedInput      = (cols[13]?.trim() || 'reps') || 'reps';
+                if (!parsed[wIdx]) parsed[wIdx] = { name: wName, exercises: [] };
                 if (exName) {
-                    parsed[wIdx].exercises.push({ name: exName, sets, target, unit, weights: [] });
+                    parsed[wIdx].exercises.push({
+                        name: exName, type, phase,
+                        bodyWeightPct, heightPct, distanceM,
+                        setRestSec, exerciseRestSec,
+                        sets, target, unit, timedInput, weights: []
+                    });
                 }
-            }
-
+            });
             const importedPlan = Object.values(parsed);
-            if (importedPlan.length === 0) {
-                alert('Import failed: no valid workout data found in the file.');
-                return;
-            }
-
-            // Confirm before overwriting
-            const action = workoutPlan.length === 0
-                ? null   // nothing to overwrite — skip confirm
-                : confirm(
-                    `Import ${importedPlan.length} workout(s) from "${file.name}"?\n\n` +
-                    `This will REPLACE your current plan (${workoutPlan.length} workout(s)).\n\n` +
-                    'Tap OK to replace, or Cancel to abort.'
-                  );
-
+            if (importedPlan.length === 0) { alert('Import failed: no workout data found.'); return; }
+            const action = workoutPlan.length === 0 ? null
+                : confirm(`Import ${importedPlan.length} workout(s)?\nThis will REPLACE your current plan.`);
             if (workoutPlan.length > 0 && !action) return;
-
             workoutPlan = importedPlan;
             currentWorkoutIndex = 0;
-            savePlan();
-            loadPlan();
+            savePlan(); loadPlan();
             alert(`✅ Imported ${importedPlan.length} workout(s) successfully!`);
-
         } catch (err) {
             alert('Import failed: ' + err.message);
         }
@@ -1167,18 +1885,15 @@ function importPlanCSV(event) {
     reader.readAsText(file);
 }
 
-// Minimal RFC 4180 CSV line parser (handles quoted fields with commas/newlines)
 function parseCSVLine(line) {
     const result = [];
     let current  = '';
     let inQuotes = false;
-
     for (let i = 0; i < line.length; i++) {
         const ch   = line[i];
         const next = line[i + 1];
-
         if (inQuotes) {
-            if (ch === '"' && next === '"') { current += '"'; i++; }   // escaped quote
+            if (ch === '"' && next === '"') { current += '"'; i++; }
             else if (ch === '"')            { inQuotes = false; }
             else                            { current += ch; }
         } else {
@@ -1191,63 +1906,8 @@ function parseCSVLine(line) {
     return result;
 }
 
-
-// Portrait ▶ Start: resume if paused, fresh start if idle
-function portraitStart() {
-    const paused = timerPhase === 'paused-active' || timerPhase === 'paused-rest';
-    if (paused) {
-        resumeTimer();
-    } else {
-        startActivePhase();   // idle or completed — fresh start
-    }
-}
-
-// ── Landscape combo button ────────────────────────────────────────
-// idle      → ▶ orange  → tap → start fresh active phase
-// running   → ⏹ red     → tap → pause, preserve remaining
-// paused    → ↺ grey    → tap → reset to programmed start time
-
-function updateComboBtn() {
-    const btn = document.getElementById('hud-combo-btn');
-    if (!btn) return;
-    const running = timerInterval !== null;
-    const paused  = timerPhase === 'paused-active' || timerPhase === 'paused-rest';
-
-    if (timerPhase === 'idle') {
-        btn.textContent = '▶';
-        btn.className   = 'combo-start';
-    } else if (running) {
-        btn.textContent = '⏹';
-        btn.className   = 'combo-stop';
-    } else if (paused) {
-        btn.textContent = '↺';
-        btn.className   = 'combo-reset';
-    } else {
-        btn.textContent = '▶';
-        btn.className   = 'combo-start';
-    }
-}
-
-function hudComboAction() {
-    const running = timerInterval !== null;
-    const paused  = timerPhase === 'paused-active' || timerPhase === 'paused-rest';
-
-    if (timerPhase === 'idle') {
-        startActivePhase();          // fresh start
-    } else if (running) {
-        pauseTimer();                // pause, keep remaining
-    } else if (paused) {
-        resetTimerDisplay();         // reset to programmed start time
-    }
-}
-
-
-
 // ── APP UPDATE ────────────────────────────────────────────────────
-// Asks the service worker to check for a new version.
-// localStorage (plan + progress) is never touched — only cached files refresh.
-
-let swRegistration = null;   // set during boot
+let swRegistration = null;
 
 function setUpdateStatus(msg, isError = false) {
     const el = document.getElementById('update-status');
@@ -1265,51 +1925,35 @@ function checkForUpdate() {
         setUpdateStatus('Service worker not registered yet — try again.', true);
         return;
     }
-
     setUpdateStatus('Checking for update…');
-
-    // Ask the SW to re-fetch its own script and compare
     swRegistration.update().then(() => {
-        const waiting  = swRegistration.waiting;
+        const waiting    = swRegistration.waiting;
         const installing = swRegistration.installing;
-
         if (waiting) {
-            // A new SW is already waiting — activate it now
             activateWaitingSW(waiting);
         } else if (installing) {
-            // A new SW is currently installing — wait for it to finish
             setUpdateStatus('Downloading update…');
             installing.addEventListener('statechange', () => {
-                if (installing.state === 'installed') {
-                    activateWaitingSW(swRegistration.waiting);
-                }
+                if (installing.state === 'installed') activateWaitingSW(swRegistration.waiting);
             });
         } else {
             setUpdateStatus('✓ Already up to date.');
             setTimeout(() => setUpdateStatus(''), 3000);
         }
-    }).catch(err => {
-        setUpdateStatus('Update check failed: ' + err.message, true);
-    });
+    }).catch(err => setUpdateStatus('Update check failed: ' + err.message, true));
 }
 
 function activateWaitingSW(sw) {
     if (!sw) return;
     setUpdateStatus('Installing update…');
-    // Tell the waiting SW to skip waiting and take control
     sw.postMessage({ action: 'skipWaiting' });
-    // Reload once the new SW has claimed this client
     navigator.serviceWorker.addEventListener('controllerchange', () => {
         setUpdateStatus('Update ready — reloading…');
         window.location.reload();
     });
 }
 
-
 // ── SOUNDS ───────────────────────────────────────────────────────
-// Uses Web Audio API to synthesise a whistle (active start) and buzzer (active end)
-// so no external files are needed.
-
 let _audioCtx = null;
 function getAudioCtx() {
     if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -1320,18 +1964,15 @@ function playWhistle() {
     if (!soundEnabled) return;
     try {
         const ctx = getAudioCtx();
-        // Short rising tone — like a referee whistle tweet
         const osc  = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
+        osc.connect(gain); gain.connect(ctx.destination);
         osc.type = 'sine';
         osc.frequency.setValueAtTime(1200, ctx.currentTime);
         osc.frequency.linearRampToValueAtTime(1600, ctx.currentTime + 0.12);
         gain.gain.setValueAtTime(0.6, ctx.currentTime);
         gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.18);
-        osc.start(ctx.currentTime);
-        osc.stop(ctx.currentTime + 0.18);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.18);
     } catch(e) {}
 }
 
@@ -1339,20 +1980,32 @@ function playBuzzer() {
     if (!soundEnabled) return;
     try {
         const ctx = getAudioCtx();
-        // Two short descending bursts — like a game-show buzzer
         [0, 0.18].forEach(offset => {
             const osc  = ctx.createOscillator();
             const gain = ctx.createGain();
-            osc.connect(gain);
-            gain.connect(ctx.destination);
+            osc.connect(gain); gain.connect(ctx.destination);
             osc.type = 'sawtooth';
             osc.frequency.setValueAtTime(220, ctx.currentTime + offset);
             osc.frequency.linearRampToValueAtTime(110, ctx.currentTime + offset + 0.14);
             gain.gain.setValueAtTime(0.5, ctx.currentTime + offset);
             gain.gain.linearRampToValueAtTime(0, ctx.currentTime + offset + 0.14);
-            osc.start(ctx.currentTime + offset);
-            osc.stop(ctx.currentTime + offset + 0.14);
+            osc.start(ctx.currentTime + offset); osc.stop(ctx.currentTime + offset + 0.14);
         });
+    } catch(e) {}
+}
+
+function playBeep() {
+    if (!soundEnabled) return;
+    try {
+        const ctx = getAudioCtx();
+        const osc  = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.08);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.08);
     } catch(e) {}
 }
 
@@ -1365,132 +2018,131 @@ function toggleSound() {
 function updateSoundUI() {
     const btn = document.getElementById('sound-toggle-btn');
     if (!btn) return;
-    btn.textContent  = soundEnabled ? '🔔 Sound On' : '🔕 Sound Off';
-    btn.className    = 'ts-order-toggle ' + (soundEnabled ? 'sound-on' : 'sound-off');
+    btn.textContent = soundEnabled ? '🔔 Sound On' : '🔕 Sound Off';
+    btn.className   = 'ts-order-toggle ' + (soundEnabled ? 'sound-on' : 'sound-off');
 }
 
 // ── PROGRESS CSV BACKUP & RESTORE ────────────────────────────────
-// Columns: date, workout_name, duration_seconds, exercise_name, sets, target, unit, weights
-// weights is pipe-separated (e.g. "10|10|12") since it's an array per set
-
-const PROGRESS_CSV_HEADER = 'date,workout_name,duration_seconds,exercise_name,sets,target,unit,weights';
+const PROGRESS_CSV_HEADER = 'date,workout_name,duration_seconds,weight_unit,height_unit,workout_total_work,workout_total_power,exercise_name,type,phase,sets,target,unit,bodyWeightPct,heightPct,weights,timedInput,total_work,total_power,total_tension';
 
 function exportProgressCSV() {
     if (progressLogs.length === 0) {
         alert('Nothing to export — no workouts have been logged yet.');
         return;
     }
-
     const rows = [PROGRESS_CSV_HEADER];
     progressLogs.forEach(log => {
-        const date     = csvEscape(log.date || '');
-        const woName   = csvEscape(log.workoutName || log.day || '');
-        const duration = csvEscape(log.duration || 0);
-
+        const date    = csvEscape(log.date || '');
+        const woName  = csvEscape(log.workoutName || log.day || '');
+        const dur     = csvEscape(log.duration || 0);
+        const wu      = csvEscape(log.weightUnit || userSettings.weightUnit);
+        const hu      = csvEscape(log.heightUnit || userSettings.heightUnit || 'in');
+        const wkWork  = csvEscape(log.workoutTotalWork  ?? '');
+        const wkPower = csvEscape(log.workoutTotalPower ?? '');
         if (!log.exercises || log.exercises.length === 0) {
-            // Log with no exercises — still export the session row
-            rows.push([date, woName, duration, '', '', '', '', ''].join(','));
+            rows.push([date, woName, dur, wu, hu, wkWork, wkPower, '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
         } else {
             log.exercises.forEach(ex => {
                 const weights = Array.isArray(ex.weights) ? ex.weights.join('|') : '';
                 rows.push([
-                    date,
-                    woName,
-                    duration,
+                    date, woName, dur, wu, hu, wkWork, wkPower,
                     csvEscape(ex.name),
+                    csvEscape(ex.type          || 'isotonic'),
+                    csvEscape(ex.phase         || 'work'),
                     csvEscape(ex.sets),
                     csvEscape(ex.target),
                     csvEscape(ex.unit || 'reps'),
-                    csvEscape(weights)
+                    csvEscape(ex.bodyWeightPct ?? 0),
+                    csvEscape(ex.heightPct     ?? ''),
+                    csvEscape(weights),
+                    csvEscape(ex.timedInput    || 'reps'),
+                    csvEscape(ex.totalWork     ?? ''),
+                    csvEscape(ex.totalPower    ?? ''),
+                    csvEscape(ex.totalTension  ?? '')
                 ].join(','));
             });
         }
     });
-
     const csvContent = rows.join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url  = URL.createObjectURL(blob);
     const dateStr  = new Date().toISOString().slice(0, 10);
-    const filename = `progress-log-${dateStr}.csv`;
-
-    const a = document.createElement('a');
-    a.href     = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    triggerCSVDownload(csvContent, `progress-log-${dateStr}.csv`);
 }
 
 function importProgressCSV(event) {
     const file = event.target.files[0];
     if (!file) return;
     event.target.value = '';
-
     const reader = new FileReader();
     reader.onload = function(e) {
         try {
             const text  = e.target.result;
             const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
-
-            if (lines.length < 2) {
-                alert('Import failed: the file appears to be empty or has no data rows.');
-                return;
-            }
-
+            if (lines.length < 2) { alert('Import failed: empty file.'); return; }
             const header = lines[0].trim().toLowerCase();
-            if (!header.startsWith('date,workout_name')) {
-                alert("Import failed: this doesn't look like a progress log CSV.\nExpected header: " + PROGRESS_CSV_HEADER);
+            if (!header.startsWith('date,workout_name,duration_seconds')) {
+                alert("Import failed: unexpected header.\nExpected: " + PROGRESS_CSV_HEADER);
                 return;
             }
-
-            // Group rows back into log entries keyed by date+workout_name
-            const logMap = {};   // key: "date||workout_name"
-            const logOrder = []; // preserve insertion order
-
+            // Detect whether this is old format (14 cols) or new format (20 cols)
+            const isNewFormat = header.includes('workout_total_work');
+            const logMap = {}, logOrder = [];
             lines.slice(1).forEach(line => {
-                const cols       = parseCSVLine(line);
-                const date       = cols[0]?.trim() || '';
-                const woName     = cols[1]?.trim() || '';
-                const duration   = parseInt(cols[2]) || 0;
-                const exName     = cols[3]?.trim() || '';
-                const sets       = parseInt(cols[4]) || 0;
-                const target     = parseInt(cols[5]) || 0;
-                const unit       = cols[6]?.trim() || 'reps';
-                const weightsRaw = cols[7]?.trim() || '';
-                const weights    = weightsRaw ? weightsRaw.split('|').map(Number) : [];
-
+                const cols = parseCSVLine(line);
+                let ci = 0;
+                const date       = cols[ci++]?.trim() || '';
+                const woName     = cols[ci++]?.trim() || '';
+                const duration   = parseInt(cols[ci++]) || 0;
+                const weightUnit = cols[ci++]?.trim() || userSettings.weightUnit;
+                let heightUnit   = userSettings.heightUnit || 'in';
+                let workoutTotalWork  = null;
+                let workoutTotalPower = null;
+                if (isNewFormat) {
+                    heightUnit        = cols[ci++]?.trim() || heightUnit;
+                    const ww = cols[ci++]?.trim(); workoutTotalWork  = ww  !== '' ? parseFloat(ww)  : null;
+                    const wp = cols[ci++]?.trim(); workoutTotalPower = wp  !== '' ? parseFloat(wp)  : null;
+                }
+                const exName        = cols[ci++]?.trim() || '';
+                const type          = cols[ci++]?.trim() || 'isotonic';
+                const phase         = cols[ci++]?.trim() || 'work';
+                const sets          = parseInt(cols[ci++]) || 0;
+                const target        = parseInt(cols[ci++]) || 0;
+                const unit          = cols[ci++]?.trim() || 'reps';
+                const bodyWeightPct = parseFloat(cols[ci++]) || 0;
+                const hpRaw = cols[ci++]?.trim(); const heightPct = hpRaw !== '' ? parseFloat(hpRaw) : null;
+                const weightsRaw    = cols[ci++]?.trim() || '';
+                const weights       = weightsRaw ? weightsRaw.split('|').map(Number) : [];
+                const timedInput    = cols[ci++]?.trim() || 'reps';
+                let totalWork = null, totalPower = null, totalTension = null;
+                if (isNewFormat) {
+                    const tw = cols[ci++]?.trim(); totalWork    = tw !== '' ? parseFloat(tw) : null;
+                    const tp = cols[ci++]?.trim(); totalPower   = tp !== '' ? parseFloat(tp) : null;
+                    const tt = cols[ci++]?.trim(); totalTension = tt !== '' ? parseFloat(tt) : null;
+                }
                 const key = date + '||' + woName;
                 if (!logMap[key]) {
-                    logMap[key] = { date, workoutName: woName, duration, exercises: [] };
+                    logMap[key] = { date, workoutName: woName, duration, weightUnit, heightUnit,
+                        workoutTotalWork, workoutTotalPower, exercises: [] };
                     logOrder.push(key);
                 }
                 if (exName) {
-                    logMap[key].exercises.push({ name: exName, sets, target, unit, weights });
+                    logMap[key].exercises.push({
+                        name: exName, type, phase,
+                        bodyWeightPct, heightPct,
+                        sets, target, unit, timedInput, weights,
+                        totalWork, totalPower, totalTension,
+                        isIsometric: type === 'isometric'
+                    });
                 }
             });
-
             const imported = logOrder.map(k => logMap[k]);
-            if (imported.length === 0) {
-                alert('Import failed: no valid log entries found in the file.');
-                return;
-            }
-
-            const action = progressLogs.length === 0
-                ? null
-                : confirm(
-                    `Import ${imported.length} session(s) from "${file.name}"?\n\n` +
-                    `This will REPLACE your current progress log (${progressLogs.length} session(s)).\n\n` +
-                    'Tap OK to replace, or Cancel to abort.'
-                  );
-
+            if (imported.length === 0) { alert('Import failed: no log entries found.'); return; }
+            const action = progressLogs.length === 0 ? null
+                : confirm(`Import ${imported.length} session(s)?\nThis will REPLACE your current progress log.`);
             if (progressLogs.length > 0 && !action) return;
-
             progressLogs = imported;
             localStorage.setItem('progressLogs', JSON.stringify(progressLogs));
             loadProgress();
             alert(`✅ Imported ${imported.length} session(s) successfully!`);
-
         } catch (err) {
             alert('Import failed: ' + err.message);
         }
@@ -1499,40 +2151,255 @@ function importProgressCSV(event) {
 }
 
 // ── PROGRESS TAB ─────────────────────────────────────────────────
+let chartWorkout  = null;  // Chart.js instance for workout chart
+let chartExercise = null;  // Chart.js instance for exercise chart
 
 function loadProgress() {
-    const logDiv = document.getElementById('progress-log');
-    logDiv.innerHTML = '';
-    // Newest to oldest
-    [...progressLogs].reverse().forEach(log => {
-        logDiv.innerHTML += `
-            <div>
-                <h4>${new Date(log.date).toLocaleDateString()} – ${log.workoutName || log.day || ''} – ${formatTime(log.duration)}</h4>
-                ${log.exercises.map(ex => `<p>${escHtml(ex.name)}: ${ex.weights.join(', ')} ${log.weightUnit || userSettings.weightUnit}</p>`).join('')}
-            </div>`;
-    });
-    renderChart();
+    renderProgressLog();
+    renderProgressCharts();
 }
 
-function renderChart() {
-    const ctx = document.getElementById('progress-chart').getContext('2d');
-    const data = {};
+function renderProgressLog() {
+    const logDiv = document.getElementById('progress-log');
+    logDiv.innerHTML = '';
+    [...progressLogs].reverse().forEach(log => {
+        const wu = log.weightUnit || userSettings.weightUnit;
+        const unit = isMetric() ? 'J' : 'ft-lbf';
+        const workLine = log.workoutTotalWork != null
+            ? `<p class="prog-work-summary">💪 Work: <strong>${log.workoutTotalWork.toFixed(0)} ${unit}</strong>${log.workoutTotalPower != null ? `&nbsp;&nbsp;⚡ Power: <strong>${log.workoutTotalPower.toFixed(1)} ${unit}/s</strong>` : ''}</p>`
+            : '';
+        logDiv.innerHTML += `
+            <div>
+                <h4>${new Date(log.date).toLocaleDateString()} – ${escHtml(log.workoutName || log.day || '')} – ${formatTime(log.duration)}</h4>
+                ${workLine}
+                ${(log.exercises || []).filter(ex => ex.phase === 'work').map(ex => {
+                    const wval = ex.isIsometric
+                        ? (ex.totalTension != null ? `Tension: ${ex.totalTension.toFixed(0)} ${unit}·s` : '')
+                        : (ex.totalWork    != null ? `Work: ${ex.totalWork.toFixed(0)} ${unit}` + (ex.totalPower != null ? ` · Power: ${ex.totalPower.toFixed(1)} ${unit}/s` : '') : '');
+                    return `<p>${escHtml(ex.name)}: ${wval || ex.weights.join(', ') + ' ' + wu}</p>`;
+                }).join('')}
+            </div>`;
+    });
+}
+
+// Build list of unique workout names from logs
+function getWorkoutNames() {
+    const seen = new Set();
+    const names = [];
     progressLogs.forEach(log => {
-        log.exercises.forEach(ex => {
-            if (!data[ex.name]) data[ex.name] = [];
-            const avg = ex.weights.length ? ex.weights.reduce((a,b)=>a+b,0)/ex.weights.length : 0;
-            data[ex.name].push({ date: log.date, avg });
+        const n = log.workoutName || log.day || '';
+        if (n && !seen.has(n)) { seen.add(n); names.push(n); }
+    });
+    return names;
+}
+
+// Build list of unique exercise names that appear in Work phase
+function getWorkExerciseNames() {
+    const seen = new Set();
+    const names = [];
+    progressLogs.forEach(log => {
+        (log.exercises || []).forEach(ex => {
+            if ((ex.phase || 'work') === 'work' && !seen.has(ex.name)) {
+                seen.add(ex.name); names.push(ex.name);
+            }
         });
     });
-    const datasets = Object.keys(data).map(name => ({
-        label: name,
-        data:  data[name].map(d => ({ x: d.date, y: d.avg })),
-        borderColor: getRandomColor(), fill: false
-    }));
-    if (chartInstance) chartInstance.destroy();
-    chartInstance = new Chart(ctx, {
-        type: 'line', data: { datasets },
-        options: { scales: { x: { type:'time', time:{ unit:'day' } }, y: { beginAtZero:true } } }
+    return names;
+}
+
+function renderProgressCharts() {
+    const container = document.getElementById('progress-charts-container');
+    if (!container) return;
+
+    const workoutNames  = getWorkoutNames();
+    const exerciseNames = getWorkExerciseNames();
+
+    // Default selections
+    const lastWorkout  = workoutNames[workoutNames.length - 1]  || '';
+    const lastExName   = (() => {
+        if (progressLogs.length === 0) return '';
+        const lastLog = progressLogs[progressLogs.length - 1];
+        const firstWorkEx = (lastLog.exercises || []).find(ex => (ex.phase || 'work') === 'work');
+        return firstWorkEx ? firstWorkEx.name : (exerciseNames[0] || '');
+    })();
+
+    const woSel  = document.getElementById('prog-workout-select')?.value  || lastWorkout;
+    const exSel  = document.getElementById('prog-exercise-select')?.value || lastExName;
+
+    container.innerHTML = `
+        <div class="prog-chart-block">
+            <div class="prog-chart-header">
+                <span class="prog-chart-title">📊 Workout: Work &amp; Power over Time</span>
+                <select id="prog-workout-select" class="prog-select" onchange="renderProgressCharts()">
+                    ${workoutNames.map(n => `<option value="${escHtml(n)}" ${n === woSel ? 'selected' : ''}>${escHtml(n)}</option>`).join('')}
+                    ${workoutNames.length === 0 ? '<option>No workouts logged</option>' : ''}
+                </select>
+            </div>
+            <div class="prog-chart-wrap">
+                <canvas id="chart-workout" height="220"></canvas>
+            </div>
+        </div>
+        <div class="prog-chart-block">
+            <div class="prog-chart-header">
+                <span class="prog-chart-title">🏋️ Exercise: Work &amp; Power over Time</span>
+                <select id="prog-exercise-select" class="prog-select" onchange="renderProgressCharts()">
+                    ${exerciseNames.map(n => `<option value="${escHtml(n)}" ${n === exSel ? 'selected' : ''}>${escHtml(n)}</option>`).join('')}
+                    ${exerciseNames.length === 0 ? '<option>No exercises logged</option>' : ''}
+                </select>
+            </div>
+            <div class="prog-chart-wrap">
+                <canvas id="chart-exercise" height="220"></canvas>
+            </div>
+        </div>
+    `;
+
+    renderWorkoutChart(woSel);
+    renderExerciseChart(exSel);
+}
+
+function renderWorkoutChart(workoutName) {
+    const canvas = document.getElementById('chart-workout');
+    if (!canvas) return;
+
+    const filtered = progressLogs.filter(log =>
+        (log.workoutName || log.day || '') === workoutName &&
+        log.workoutTotalWork != null
+    );
+
+    const labels = filtered.map(log => new Date(log.date).toLocaleDateString());
+    const workData  = filtered.map(log => +(log.workoutTotalWork || 0).toFixed(1));
+    const powerData = filtered.map(log => log.workoutTotalPower != null ? +(log.workoutTotalPower).toFixed(2) : null);
+
+    const unit = isMetric() ? 'J' : 'ft-lbf';
+
+    if (chartWorkout) chartWorkout.destroy();
+    chartWorkout = new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: `Total Work (${unit})`,
+                    data: workData,
+                    borderColor: '#30d158',
+                    backgroundColor: 'rgba(48,209,88,0.1)',
+                    borderWidth: 2,
+                    pointRadius: 4,
+                    tension: 0.3,
+                    yAxisID: 'yWork',
+                    fill: true
+                },
+                {
+                    label: `Avg Power (${unit}/s)`,
+                    data: powerData,
+                    borderColor: '#ff9f0a',
+                    backgroundColor: 'rgba(255,159,10,0.08)',
+                    borderWidth: 2,
+                    pointRadius: 4,
+                    tension: 0.3,
+                    yAxisID: 'yPower',
+                    spanGaps: true
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { labels: { color: '#1c1c1e', font: { size: 12 } } },
+                tooltip: { callbacks: {
+                    label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(1) : '—'}`
+                }}
+            },
+            scales: {
+                x:      { ticks: { color: '#636366', maxRotation: 45 }, grid: { color: '#e5e5ea' } },
+                yWork:  { type: 'linear', position: 'left',  beginAtZero: true, ticks: { color: '#30d158' }, grid: { color: '#e5e5ea' }, title: { display: true, text: `Work (${unit})`, color: '#30d158' } },
+                yPower: { type: 'linear', position: 'right', beginAtZero: true, ticks: { color: '#ff9f0a' }, grid: { drawOnChartArea: false }, title: { display: true, text: `Power (${unit}/s)`, color: '#ff9f0a' } }
+            }
+        }
+    });
+}
+
+function renderExerciseChart(exerciseName) {
+    const canvas = document.getElementById('chart-exercise');
+    if (!canvas) return;
+
+    // Gather per-exercise data points from all logs
+    const points = [];
+    progressLogs.forEach(log => {
+        const ex = (log.exercises || []).find(e =>
+            e.name === exerciseName && (e.phase || 'work') === 'work'
+        );
+        if (!ex) return;
+        points.push({ date: new Date(log.date).toLocaleDateString(), ex });
+    });
+
+    const labels    = points.map(p => p.date);
+    const isIso     = points.length > 0 && points[0].ex.isIsometric;
+    const unit      = isMetric() ? 'J' : 'ft-lbf';
+
+    const workData  = points.map(p =>
+        isIso
+            ? (p.ex.totalTension != null ? +p.ex.totalTension.toFixed(1) : null)
+            : (p.ex.totalWork    != null ? +p.ex.totalWork.toFixed(1)    : null)
+    );
+    const powerData = isIso ? null : points.map(p =>
+        p.ex.totalPower != null ? +p.ex.totalPower.toFixed(2) : null
+    );
+
+    const workLabel  = isIso ? `Tension Load (${unit}·s)` : `Total Work (${unit})`;
+    const powerLabel = `Avg Power (${unit}/s)`;
+
+    const datasets = [
+        {
+            label: workLabel,
+            data: workData,
+            borderColor: '#0a84ff',
+            backgroundColor: 'rgba(10,132,255,0.1)',
+            borderWidth: 2,
+            pointRadius: 4,
+            tension: 0.3,
+            yAxisID: 'yWork',
+            fill: true,
+            spanGaps: true
+        }
+    ];
+
+    const scales = {
+        x:     { ticks: { color: '#636366', maxRotation: 45 }, grid: { color: '#e5e5ea' } },
+        yWork: { type: 'linear', position: 'left', beginAtZero: true, ticks: { color: '#0a84ff' }, grid: { color: '#e5e5ea' }, title: { display: true, text: workLabel, color: '#0a84ff' } }
+    };
+
+    if (!isIso && powerData) {
+        datasets.push({
+            label: powerLabel,
+            data: powerData,
+            borderColor: '#ff453a',
+            backgroundColor: 'rgba(255,69,58,0.08)',
+            borderWidth: 2,
+            pointRadius: 4,
+            tension: 0.3,
+            yAxisID: 'yPower',
+            spanGaps: true
+        });
+        scales.yPower = { type: 'linear', position: 'right', beginAtZero: true, ticks: { color: '#ff453a' }, grid: { drawOnChartArea: false }, title: { display: true, text: powerLabel, color: '#ff453a' } };
+    }
+
+    if (chartExercise) chartExercise.destroy();
+    chartExercise = new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+            responsive: true,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { labels: { color: '#1c1c1e', font: { size: 12 } } },
+                tooltip: { callbacks: {
+                    label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(1) : '—'}`
+                }}
+            },
+            scales
+        }
     });
 }
 
@@ -1541,65 +2408,89 @@ function getRandomColor() {
 }
 
 function formatTime(s) {
-    return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+    const sec = Math.max(0, Math.round(s));
+    return `${String(Math.floor(sec/60)).padStart(2,'0')}:${String(sec%60).padStart(2,'0')}`;
 }
 
 // ── Settings TAB ─────────────────────────────────────────────────
 function loadSettings() {
-    document.getElementById('user-weight').value =
-        userSettings.weight;
-    document.getElementById('user-height').value =
-        userSettings.height;
-    document.getElementById('weight-unit').value =
-        userSettings.weightUnit;
+    document.getElementById('user-weight').value = userSettings.weight;
+    document.getElementById('user-height').value = userSettings.height;
+    document.getElementById('weight-unit').value = userSettings.weightUnit;
+    const huEl = document.getElementById('height-unit');
+    if (huEl) huEl.value = userSettings.heightUnit || 'in';
+    updateSettingsWeightLabel();
+    updateSettingsHeightLabel();
+}
+
+function updateSettingsWeightLabel() {
+    const unit = document.getElementById('weight-unit')?.value || userSettings.weightUnit;
+    const lbl  = document.getElementById('weight-unit-label');
+    if (lbl) lbl.textContent = unit === 'kg' ? 'kg' : 'lb';
+}
+
+function updateSettingsHeightLabel() {
+    const unit = document.getElementById('height-unit')?.value || userSettings.heightUnit;
+    const lbl  = document.getElementById('height-unit-label');
+    if (lbl) lbl.textContent = unit === 'cm' ? 'cm' : 'in';
 }
 
 function saveSettings() {
-    userSettings.weight =
-        parseFloat(document.getElementById('user-weight').value) || '';
-    userSettings.height =
-        parseFloat(document.getElementById('user-height').value) || '';
-    userSettings.weightUnit =
-        document.getElementById('weight-unit').value;
-    localStorage.setItem(
-        'userSettings',
-        JSON.stringify(userSettings)
-    );
-
-    renderExercise();
+    const weightVal  = parseFloat(document.getElementById('user-weight').value);
+    const heightVal  = parseFloat(document.getElementById('user-height').value);
+    const weightUnit = document.getElementById('weight-unit').value;
+    const heightUnit = (document.getElementById('height-unit')?.value) || 'in';
+    if (weightVal && weightVal <= 0) { alert('Please enter a positive body weight.'); return; }
+    if (heightVal && heightVal <= 0) { alert('Please enter a positive height.'); return; }
+    userSettings.weight     = weightVal || '';
+    userSettings.height     = heightVal || '';
+    userSettings.weightUnit = weightUnit;
+    userSettings.heightUnit = heightUnit;
+    localStorage.setItem('userSettings', JSON.stringify(userSettings));
+    if (workoutInProgress) renderExercise();
     loadProgress();
-
     alert('Settings saved!');
 }
 
 // ── BOOT ─────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-    // When the app comes back to the foreground, resync the elapsed display
-    // immediately (the interval may have been throttled while backgrounded)
+    // Check for an interrupted workout before rendering any tab
+    const wasRestored = restoreInProgressWorkout();
+
     document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible' && workoutInProgress) {
-            syncElapsedDisplay();
-            // Restart the display interval in case it was killed
-            startElapsedClock();
+        if (document.visibilityState === 'visible') {
+            // Re-check auto-complete each time app comes to foreground
+            const raw = localStorage.getItem('inProgressWorkout');
+            if (raw && !workoutInProgress) {
+                restoreInProgressWorkout();
+            } else if (raw && workoutInProgress) {
+                // Already in progress — check if 3-hour threshold has now been crossed
+                try {
+                    const state = JSON.parse(raw);
+                    if (Date.now() - state.lastActivityTime > AUTO_COMPLETE_MS) {
+                        clearInProgressWorkout();
+                        completeWorkout(true);
+                        return;
+                    }
+                } catch(e) { clearInProgressWorkout(); }
+            }
+            if (workoutInProgress) {
+                syncElapsedDisplay();
+                startElapsedClock();
+            }
         }
     });
 
-    resetTimerDisplay();
     switchTab('calendar');
+    // If a workout was restored, navigate straight to the workout tab
+    if (wasRestored && workoutInProgress) switchTab('workout');
 });
 
-// ── Service worker registration (outside DOMContentLoaded is fine) ──
 if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./service-worker.js')
         .then(reg => {
             swRegistration = reg;
-
-            // If a new SW is already waiting when we load, surface it
-            if (reg.waiting) {
-                setUpdateStatus('Update available — tap "Check for App Update" to apply.');
-            }
-
-            // Listen for a SW that finishes installing after page load
+            if (reg.waiting) setUpdateStatus('Update available — tap "Check for App Update" to apply.');
             reg.addEventListener('updatefound', () => {
                 const newSW = reg.installing;
                 newSW.addEventListener('statechange', () => {

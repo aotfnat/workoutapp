@@ -210,6 +210,13 @@ button:disabled {
     font-weight: 700;
     font-size: 18px;
     color: #1c1c1e;
+    margin: 0 0 6px;
+}
+
+/* Body weight force contribution line */
+.bw-force-text {
+    font-size: 14px;
+    color: #636366;
     margin: 0 0 14px;
 }
 
@@ -276,7 +283,7 @@ button:disabled {
     border: 1px solid #d1d1d6;
 }
 #progress-log h4 {
-    margin: 0 0 8px;
+    margin: 0 0 6px;
     font-size: 15px;
     font-weight: 600;
     color: #1c1c1e;
@@ -286,12 +293,70 @@ button:disabled {
     font-size: 14px;
     color: #636366;
 }
-#progress-chart {
-    width: 100% !important;
-    height: auto !important;
-    border-radius: 12px;
+.prog-work-summary {
+    font-size: 13px;
+    color: #1c1c1e !important;
+    margin: 0 0 6px !important;
+    background: #f2f2f7;
+    border-radius: 8px;
+    padding: 6px 10px;
+}
+
+/* ── Two-chart progress layout ──────────────────────────────────── */
+#progress-charts-container {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.prog-chart-block {
     background: #fff;
-    margin-top: 8px;
+    border: 1px solid #d1d1d6;
+    border-radius: 14px;
+    overflow: hidden;
+}
+
+.prog-chart-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px 8px;
+    background: #f2f2f7;
+    border-bottom: 1px solid #e5e5ea;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.prog-chart-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #1c1c1e;
+    flex: 1;
+    min-width: 0;
+}
+
+.prog-select {
+    font-size: 13px;
+    font-weight: 600;
+    padding: 6px 10px;
+    border: 1px solid #d1d1d6;
+    border-radius: 8px;
+    background: #fff;
+    color: #007aff;
+    max-width: 180px;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23007aff' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    padding-right: 26px;
+}
+.prog-select:focus { outline: none; border-color: #007aff; }
+
+.prog-chart-wrap {
+    padding: 10px 10px 14px;
+    position: relative;
 }
 
 /* ── Settings tab ──────────────────────────────────────────────── */
@@ -314,6 +379,29 @@ button:disabled {
     color: #3a3a3c;
 }
 
+/* Row that holds the number input + inline unit badge */
+.settings-input-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.settings-input-row input {
+    flex: 1;
+}
+
+/* Small coloured badge showing the current unit (lb / kg / in / cm) */
+.settings-unit-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+    background: #636366;
+    border-radius: 6px;
+    padding: 4px 8px;
+    min-width: 32px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
 .settings-form input,
 .settings-form select {
     width: 100%;
@@ -328,6 +416,14 @@ button:disabled {
 .settings-form button {
     margin-top: 8px;
     background: #30d158;
+}
+
+/* Explanatory hint text under settings fields */
+.settings-hint {
+    font-size: 13px;
+    color: #8e8e93;
+    line-height: 1.5;
+    margin: 0;
 }
 
 /* ── Hamburger menu button (inside HUD label row) ──────────────── */
@@ -1204,4 +1300,415 @@ body:has(#workout-section.active) #floating-menu-btn {
     /* Swap three buttons for single combo button */
     .hud-cell.hud-center { display: flex; }
     .timer-btn-row        { display: none; }
+}
+
+/* ── Phase 2: Plan tab — phase sections ─────────────────────────── */
+.phase-section {
+    margin-bottom: 14px;
+    border: 1px solid #e5e5ea;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.phase-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: #f2f2f7;
+    border-bottom: 1px solid #e5e5ea;
+}
+
+.phase-label {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #636366;
+}
+
+.phase-add-btn {
+    font-size: 13px;
+    font-weight: 700;
+    padding: 5px 11px;
+    margin: 0;
+    background: #007aff;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+.phase-add-btn:active { opacity: 0.7; }
+
+.phase-ex-list {
+    padding: 8px 10px;
+}
+
+.phase-empty {
+    font-size: 13px;
+    color: #aeaeb2;
+    font-style: italic;
+    text-align: center;
+    padding: 6px 0;
+    margin: 0;
+}
+
+/* ── Phase 2: Plan tab — compact exercise row ───────────────────── */
+.plan-ex-row {
+    background: #fff;
+    border: 1px solid #e5e5ea;
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+}
+.plan-ex-row:last-child { margin-bottom: 0; }
+
+.plan-ex-main {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+}
+
+.plan-ex-name {
+    flex: 1;
+    font-size: 15px;
+    font-weight: 600;
+    color: #1c1c1e;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.plan-ex-edit-btn {
+    color: #007aff;
+    font-size: 14px;
+}
+
+.plan-ex-detail {
+    font-size: 13px;
+    color: #3a3a3c;
+    margin-bottom: 2px;
+}
+
+.plan-ex-rest {
+    font-size: 12px;
+    color: #8e8e93;
+}
+
+/* ── Phase 2: Exercise type tags ────────────────────────────────── */
+.ex-tag {
+    font-size: 10px;
+    font-weight: 800;
+    border-radius: 5px;
+    padding: 2px 5px;
+    letter-spacing: 0.3px;
+    flex-shrink: 0;
+}
+.ex-tag-iso {
+    background: rgba(90,200,250,0.18);
+    color: #0a84ff;
+}
+.ex-tag-ton {
+    background: rgba(52,199,89,0.18);
+    color: #30d158;
+}
+
+/* ── Phase 2: Exercise form modal ───────────────────────────────── */
+/* The modal itself is already styled; this handles the form internals */
+
+.ex-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    max-height: 60dvh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-right: 2px; /* scrollbar gap */
+}
+
+.ex-form-section {
+    padding: 12px 0;
+    border-bottom: 1px solid #2c2c2e;
+}
+.ex-form-section:last-child { border-bottom: none; }
+
+.ex-form-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: #8e8e93;
+    margin-bottom: 8px;
+}
+
+.ex-form-hint {
+    font-size: 11px;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    color: #636366;
+}
+
+.ex-form-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ex-form-unit {
+    font-size: 13px;
+    color: #8e8e93;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.ex-form-select {
+    width: 100%;
+    padding: 11px 12px;
+    font-size: 15px;
+    border: 1px solid #3a3a3c;
+    border-radius: 10px;
+    background: #2c2c2e;
+    color: #fff;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%238e8e93' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 32px;
+}
+.ex-form-select:focus { outline: none; border-color: #30d158; }
+.ex-form-select:disabled { opacity: 0.45; }
+
+/* Isotonic / isometric toggle */
+.ex-toggle-row {
+    display: flex;
+    gap: 10px;
+}
+
+.ex-toggle-opt {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    background: #2c2c2e;
+    border-radius: 10px;
+    padding: 11px 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+.ex-toggle-opt input[type="radio"] {
+    accent-color: #30d158;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+
+/* BW preview inline */
+.ex-bw-preview {
+    font-size: 13px;
+    font-weight: 600;
+    color: #30d158;
+    white-space: nowrap;
+}
+
+/* Library search results */
+.ex-lib-results {
+    margin-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    max-height: 140px;
+    overflow-y: auto;
+}
+
+.ex-lib-result-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    background: #2c2c2e;
+    border: 1px solid #3a3a3c;
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin: 0;
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    -webkit-tap-highlight-color: transparent;
+}
+.ex-lib-result-btn:active { background: #3a3a3c; }
+
+.ex-lib-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: #fff;
+}
+
+.ex-lib-meta {
+    font-size: 12px;
+    color: #8e8e93;
+}
+
+/* ── Phase 2: Workout tab — phase badge ─────────────────────────── */
+.workout-phase-badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: #636366;
+    background: #f2f2f7;
+    border-radius: 6px;
+    padding: 3px 8px;
+    margin-bottom: 8px;
+}
+
+/* Landscape: make exercise form modal scrollable without clipping */
+@media (orientation: landscape) and (max-height: 500px) {
+    .ex-form {
+        max-height: 55dvh;
+    }
+    .ex-form-section {
+        padding: 8px 0;
+    }
+}
+
+/* ── Phase 3: HUD additions ─────────────────────────────────────── */
+
+/* Phase label below elapsed time */
+.hud-phase-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: #636366;
+    margin-top: 2px;
+    min-height: 14px;
+}
+
+/* Running work total below phase label */
+.hud-work-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #30d158;
+    margin-top: 1px;
+    min-height: 14px;
+}
+
+/* Right cell top row: pause/resume btn + phase label side by side */
+.hud-timer-top-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+}
+
+/* Pause/Resume button — small, top of timer cell */
+.pause-resume-btn {
+    background: #2c2c2e;
+    border: 1px solid #3a3a3c;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 700;
+    border-radius: 8px;
+    padding: 3px 9px;
+    margin: 0;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    flex-shrink: 0;
+    line-height: 1.4;
+    touch-action: manipulation;
+}
+.pause-resume-btn:active { opacity: 0.6; }
+
+/* Timed-isotonic user input block */
+.timed-input-block {
+    background: #f2f2f7;
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+}
+.timed-input-label {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1c1c1e;
+    margin: 0 0 8px;
+}
+.timed-user-input {
+    font-size: 22px;
+    font-weight: 700;
+    padding: 8px 12px;
+    border: 1px solid #d1d1d6;
+    border-radius: 10px;
+    width: 110px;
+    text-align: center;
+    margin-top: 4px;
+}
+
+/* Timer low-time pulse for rest */
+@keyframes timerLowPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+#timer.timer-rest.low {
+    animation: timerLowPulse 0.8s ease-in-out infinite;
+}
+
+/* Landscape: hide portrait-only timer row (already removed from HTML but guard) */
+@media (orientation: landscape) and (max-height: 500px) {
+    .hud-phase-label { font-size: 10px; }
+    .hud-work-label  { font-size: 10px; }
+    .hud-timer-top-row { gap: 4px; }
+    .pause-resume-btn { font-size: 12px; padding: 2px 7px; }
+}
+
+/* ── Workout card: goal + set counter on one line ───────────────── */
+.goal-set-line {
+    font-weight: 700;
+    font-size: 18px;
+    color: #1c1c1e;
+    margin: 0 0 10px;
+}
+
+.set-counter-num {
+    color: #ff453a;
+}
+
+/* Remove old split-layout rules no longer needed */
+.goal-set-line .goal-text {
+    font-weight: inherit;
+    font-size: inherit;
+    color: inherit;
+    margin: 0;
+}
+
+.set-counter {
+    display: none;
+}
+
+/* ── Workout card: BW load + added weight — single inline line ───── */
+.weight-inline {
+    font-size: 14px;
+    color: #636366;
+    margin: 0 0 14px;
+    line-height: 2;
+}
+
+.weight-inline-input {
+    font-size: 16px;
+    padding: 4px 8px;
+    border: 1px solid #d1d1d6;
+    border-radius: 8px;
+    width: 80px;
+    text-align: center;
+    vertical-align: middle;
 }

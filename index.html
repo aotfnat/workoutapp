@@ -44,29 +44,34 @@
         <!-- WORKOUT -->
         <div id="workout-section" class="tab-content">
 
-            <!-- Sticky HUD: hamburger + elapsed (left) | rest timer (right) -->
+            <!-- Sticky HUD -->
             <div id="workout-hud">
+                <!-- Left cell: menu + elapsed + phase label + work total -->
                 <div class="hud-cell">
                     <div class="hud-label">
                         <button id="menu-btn" onclick="toggleMenu()" aria-label="Open menu">☰</button>
                         <span>⏱ Elapsed</span>
                     </div>
                     <div id="lapsed-time" class="hud-time">00:00</div>
+                    <div id="hud-workout-phase" class="hud-phase-label"></div>
+                    <div id="hud-work-total" class="hud-work-label"></div>
                 </div>
-                <div class="hud-cell hud-center">
-                    <button id="hud-combo-btn" onclick="hudComboAction()">▶</button>
-                </div>
-                <div class="hud-cell hud-right" onclick="openTimerDrawer()" style="cursor:pointer;">
-                    <div id="timer-phase-label" class="hud-label">🔥 Active</div>
-                    <div id="timer" class="hud-time">00:40</div>
-                </div>
-            </div>
 
-            <!-- Timer controls -->
-            <div class="timer-btn-row">
-                <button id="timer-start" onclick="portraitStart()">▶ Start</button>
-                <button id="timer-stop"  onclick="pauseTimer()">⏹ Stop</button>
-                <button id="timer-reset" onclick="resetTimerDisplay()">↺ Reset</button>
+                <!-- Centre cell: landscape combo button (hidden in portrait) -->
+                <div class="hud-cell hud-center">
+                    <button id="hud-combo-btn" onclick="hudComboAction()">–</button>
+                </div>
+
+                <!-- Right cell: Pause/Resume (top-left) + phase label + timer -->
+                <div class="hud-cell hud-right" onclick="openTimerDrawer()" style="cursor:pointer;">
+                    <div class="hud-timer-top-row">
+                        <button id="pause-resume-btn" class="pause-resume-btn"
+                            onclick="event.stopPropagation(); pauseResumeTimer()"
+                            style="display:none;">⏸</button>
+                        <div id="timer-phase-label" class="hud-label">⏱ Timer</div>
+                    </div>
+                    <div id="timer" class="hud-time">--:--</div>
+                </div>
             </div>
 
             <!-- Current exercise -->
@@ -82,27 +87,45 @@
                 <button class="backup-btn import-btn" onclick="document.getElementById('progress-import-input').click()">📥 Import CSV</button>
             </div>
             <input type="file" id="progress-import-input" accept=".csv" style="display:none" onchange="importProgressCSV(event)">
+            <!-- Two stacked Work/Power charts -->
+            <div id="progress-charts-container"></div>
+            <!-- Session log -->
             <div id="progress-log"></div>
-            <canvas id="progress-chart" width="400" height="250"></canvas>
         </div>
 
         <!-- Settings -->
         <div id="settings-section" class="tab-content">
             <h2><button class="section-menu-btn" onclick="toggleMenu()">☰</button> ⚙️ Settings</h2>
             <div class="settings-form">
-                <label>Weight<input type="number" id="user-weight"></label>
-                <label>Height (inches)<input type="number" id="user-height"></label>
-                <label>Workout Weight Units
-                    <select id="weight-unit">
+                <label>Body Weight
+                    <div class="settings-input-row">
+                        <input type="number" id="user-weight" min="0" step="0.1" placeholder="e.g. 180">
+                        <span class="settings-unit-label" id="weight-unit-label">lb</span>
+                    </div>
+                </label>
+                <label>Height
+                    <div class="settings-input-row">
+                        <input type="number" id="user-height" min="0" step="0.1" placeholder="e.g. 70">
+                        <span class="settings-unit-label" id="height-unit-label">in</span>
+                    </div>
+                </label>
+                <label>Weight Unit
+                    <select id="weight-unit" onchange="updateSettingsWeightLabel()">
                         <option value="lb">Pounds (lb)</option>
                         <option value="kg">Kilograms (kg)</option>
                     </select>
                 </label>
+                <label>Height Unit
+                    <select id="height-unit" onchange="updateSettingsHeightLabel()">
+                        <option value="in">Inches (in)</option>
+                        <option value="cm">Centimetres (cm)</option>
+                    </select>
+                </label>
+                <p class="settings-hint">Body weight is used to calculate the load on exercises. Height is used to calculate distance traveled per rep for repetitive movements.</p>
                 <button onclick="saveSettings()">💾 Save Settings</button>
             </div>
         </div>
     </main>
-
 
     <!-- Exercise entry modal -->
     <div id="ex-modal-overlay" onclick="exModalCancel()"></div>
@@ -113,6 +136,7 @@
             <button class="ex-modal-cancel" onclick="exModalCancel()">Cancel</button>
         </div>
     </div>
+
     <!-- Slide-up navigation menu -->
     <div id="menu-overlay" onclick="toggleMenu()"></div>
     <div id="menu-drawer">
@@ -124,52 +148,42 @@
         <button class="menu-item" data-tab="settings" onclick="switchTab('settings')">⚙️ Settings</button>
     </div>
 
-    <!-- Timer settings side drawer (slides in from right) -->
+    <!-- Timer settings side drawer (slides in from right) — Phase 3: simplified -->
     <div id="timer-settings-overlay" onclick="closeTimerDrawer()"></div>
     <div id="timer-settings-drawer">
         <div class="ts-header">
-            <span class="ts-title">⏱ Timer Settings</span>
+            <span class="ts-title">⏱ Timer</span>
             <button class="ts-close" onclick="closeTimerDrawer()">✕</button>
         </div>
 
         <div class="ts-section">
-            <div class="ts-label timer-label-active">🔥 Active Duration</div>
-            <div class="ts-stepper">
-                <button class="ts-step-btn" onclick="stepDuration('active', -5)">－</button>
-                <span id="active-duration-val" class="ts-val">60</span>
-                <span class="ts-unit">sec</span>
-                <button class="ts-step-btn" onclick="stepDuration('active', 5)">＋</button>
-            </div>
+            <p class="ts-hint" style="margin:0;color:#8e8e93;font-size:13px;line-height:1.5;">
+                Active and rest durations are set per-exercise during workout creation. Tap the timer area to open this panel.
+            </p>
         </div>
 
         <div class="ts-section">
-            <div class="ts-label timer-label-rest">😮‍💨 Rest Duration</div>
-            <div class="ts-stepper">
-                <button class="ts-step-btn" onclick="stepDuration('rest', -5)">－</button>
-                <span id="rest-duration-val" class="ts-val">55</span>
-                <span class="ts-unit">sec</span>
-                <button class="ts-step-btn" onclick="stepDuration('rest', 5)">＋</button>
-            </div>
+            <div class="ts-label" style="color:#ff453a;">Reset Timer</div>
+            <button class="ts-order-toggle" style="background:#3a3a3c;color:#ff453a;"
+                onclick="resetTimerFromDrawer()">↺ Reset Current Timer</button>
         </div>
 
         <div class="ts-section">
-            <div class="ts-label" style="color:#fff;">Timer Order</div>
-            <button id="timer-order-toggle" class="ts-order-toggle" onclick="toggleTimerOrder()">
-                <span id="timer-order-label">🔥 Active → 😮‍💨 Rest</span>
-            </button>
+            <div class="ts-label" style="color:#30d158;">Complete Workout</div>
+            <button class="ts-order-toggle" style="background:#1c3a28;color:#30d158;"
+                onclick="closeTimerDrawer(); completeWorkout()">✅ Complete Workout Early</button>
         </div>
 
         <div class="ts-section">
             <div class="ts-label" style="color:#fff;">Sounds</div>
             <button id="sound-toggle-btn" class="ts-order-toggle sound-off" onclick="toggleSound()">🔕 Sound Off</button>
         </div>
-
-        <p class="ts-hint">Tap the timer in the workout screen to open this panel. Changes take effect on the next set.</p>
     </div>
 
 </div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+    <script src="./exercise-library.js"></script>
     <script src="./app.js"></script>
 
 </body>
