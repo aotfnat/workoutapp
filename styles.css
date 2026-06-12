@@ -1571,6 +1571,15 @@ body:has(#workout-section.active) #floating-menu-btn {
     min-height: 14px;
 }
 
+/* Wrapper for elapsed time + work total.
+   Portrait: column (work label sits below the clock).
+   Landscape: row (work label sits to the right of the clock, baseline-aligned). */
+.hud-elapsed-row {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
 /* Right cell top row: pause/resume btn + phase label side by side */
 .hud-timer-top-row {
     display: flex;
@@ -1643,6 +1652,18 @@ body:has(#workout-section.active) #floating-menu-btn {
     .hud-work-label  { font-size: 10px; }
     .hud-timer-top-row { gap: 4px; }
     .pause-resume-btn { font-size: 12px; padding: 2px 7px; }
+
+    /* Shift work total to sit beside the elapsed clock */
+    .hud-elapsed-row {
+        flex-direction: row;
+        align-items: baseline;
+        gap: 8px;
+    }
+    /* In landscape the work label needs no top margin since it's inline */
+    .hud-elapsed-row .hud-work-label {
+        margin-top: 0;
+        font-size: 10px;
+    }
 }
 
 /* ── Workout card: goal + set counter on one line ───────────────── */
