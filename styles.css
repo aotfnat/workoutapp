@@ -1078,6 +1078,12 @@ body:has(#workout-section.active) #floating-menu-btn {
     color: #30d158;
 }
 
+.app-version-label {
+    font-size: 12px;
+    color: #aeaeb2;
+    margin: 4px 0 0;
+}
+
 
 /* ── Exercise entry modal ───────────────────────────────────────── */
 #ex-modal-overlay {

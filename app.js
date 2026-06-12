@@ -309,6 +309,23 @@ let calendarMonth = new Date().getMonth();
 
 function loadCalendar() {
     renderCalendar(calendarYear, calendarMonth);
+    loadAppVersion();
+}
+
+function loadAppVersion() {
+    const el = document.getElementById('app-version-label');
+    if (!el) return;
+    if (!('caches' in window)) {
+        el.textContent = 'Version unavailable';
+        return;
+    }
+    caches.keys().then(keys => {
+        // The active cache name is the one that matches our SW naming convention
+        const swCache = keys.find(k => k.startsWith('fitness-app-'));
+        el.textContent = swCache ? swCache : 'Version unavailable';
+    }).catch(() => {
+        el.textContent = 'Version unavailable';
+    });
 }
 
 function renderCalendar(year, month) {
