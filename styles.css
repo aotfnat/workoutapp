@@ -869,37 +869,7 @@ body:has(#workout-section.active) #floating-menu-btn {
 }
 
 
-/* ── HUD centre cell — landscape combo button (hidden in portrait) ─ */
-.hud-cell.hud-center {
-    display: none;          /* portrait: hidden */
-    align-items: center;
-    justify-content: center;
-    padding: 8px;
-    border-left: 1px solid #3a3a3c;
-    border-right: 1px solid #3a3a3c;
-}
 
-#hud-combo-btn {
-    width: 54px;
-    height: 54px;
-    border-radius: 50%;
-    border: none;
-    font-size: 22px;
-    font-weight: 700;
-    margin: 0;
-    padding: 0;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    -webkit-tap-highlight-color: transparent;
-    transition: opacity 0.15s;
-    flex-shrink: 0;
-}
-#hud-combo-btn:active { opacity: 0.65; }
-#hud-combo-btn.combo-start { background: #ff9f0a; color: #fff; }
-#hud-combo-btn.combo-stop  { background: #ff453a; color: #fff; }
-#hud-combo-btn.combo-reset { background: #636366; color: #fff; }
 
 
 /* ── Swipe-to-delete ─────────────────────────────────────────────── */
@@ -1297,9 +1267,6 @@ body:has(#workout-section.active) #floating-menu-btn {
     }
     #menu-drawer-handle { margin-bottom: 10px; }
 
-    /* Swap three buttons for single combo button */
-    .hud-cell.hud-center { display: flex; }
-    .timer-btn-row        { display: none; }
 }
 
 /* ── Phase 2: Plan tab — phase sections ─────────────────────────── */
@@ -1629,6 +1596,13 @@ body:has(#workout-section.active) #floating-menu-btn {
     touch-action: manipulation;
 }
 .pause-resume-btn:active { opacity: 0.6; }
+
+/* Skip-rest button — orange tint to signal "advance" */
+.skip-rest-btn {
+    background: rgba(255,159,10,0.18);
+    border-color: rgba(255,159,10,0.4);
+    color: #ff9f0a;
+}
 
 /* Timed-isotonic user input block */
 .timed-input-block {

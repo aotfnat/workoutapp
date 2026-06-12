@@ -57,17 +57,15 @@
                     <div id="hud-work-total" class="hud-work-label"></div>
                 </div>
 
-                <!-- Centre cell: landscape combo button (hidden in portrait) -->
-                <div class="hud-cell hud-center">
-                    <button id="hud-combo-btn" onclick="hudComboAction()">–</button>
-                </div>
-
-                <!-- Right cell: Pause/Resume (top-left) + phase label + timer -->
+                <!-- Right cell: Pause/Resume + Skip Rest (top-left) + phase label + timer -->
                 <div class="hud-cell hud-right" onclick="openTimerDrawer()" style="cursor:pointer;">
                     <div class="hud-timer-top-row">
                         <button id="pause-resume-btn" class="pause-resume-btn"
                             onclick="event.stopPropagation(); pauseResumeTimer()"
                             style="display:none;">⏸</button>
+                        <button id="skip-rest-btn" class="pause-resume-btn skip-rest-btn"
+                            onclick="event.stopPropagation(); skipToEndOfRest()"
+                            style="display:none;" title="Skip to end of rest">⏭</button>
                         <div id="timer-phase-label" class="hud-label">⏱ Timer</div>
                     </div>
                     <div id="timer" class="hud-time">--:--</div>

@@ -1228,23 +1228,25 @@ function updateHudTimerDisplay() {
     }
 
     updatePauseResumeBtn();
-    updateHudComboBtn();
 }
 
 function updatePauseResumeBtn() {
-    const btn = document.getElementById('pause-resume-btn');
+    const btn     = document.getElementById('pause-resume-btn');
+    const skipBtn = document.getElementById('skip-rest-btn');
     if (!btn) return;
-    const isPaused = timerMode === 'paused-rest' || timerMode === 'paused-countdown' || timerMode === 'paused-countup';
+    const isPaused  = timerMode === 'paused-rest' || timerMode === 'paused-countdown' || timerMode === 'paused-countup';
     const isRunning = timerMode === 'rest' || timerMode === 'countdown' || timerMode === 'countup';
+    const isRest    = timerMode === 'rest' || timerMode === 'paused-rest';
     if (isRunning) {
-        btn.textContent = '⏸';
+        btn.textContent  = '⏸';
         btn.style.display = 'block';
     } else if (isPaused) {
-        btn.textContent = '▶';
+        btn.textContent  = '▶';
         btn.style.display = 'block';
     } else {
         btn.style.display = 'none';
     }
+    if (skipBtn) skipBtn.style.display = isRest ? 'block' : 'none';
 }
 
 function pauseResumeTimer() {
@@ -1278,7 +1280,37 @@ function pauseResumeTimer() {
     updateHudTimerDisplay();
 }
 
-// ── Rest timer ─────────────────────────────────────────────────────
+// Skip rest to 3 seconds remaining
+function skipToEndOfRest() {
+    if (timerMode !== 'rest' && timerMode !== 'paused-rest') return;
+    if (timerRemaining <= 3) return; // already nearly done
+    timerRemaining = 3;
+    // If paused, resume from 3s; if already running the interval will
+    // pick up timerRemaining naturally on its next tick
+    if (timerMode === 'paused-rest') {
+        clearInterval(timerInterval);
+        timerInterval = null;
+        timerMode = 'rest';
+        currentRestDuration = 3;
+        updateHudTimerDisplay();
+        timerInterval = setInterval(() => {
+            timerRemaining--;
+            updateHudTimerDisplay();
+            if (timerRemaining <= 3 && timerRemaining > 0) playBeep();
+            if (timerRemaining <= 0) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+                playWhistle();
+                startActiveTimer();
+            }
+        }, 1000);
+    } else {
+        // Already running — just update display; interval will count down from 3
+        updateHudTimerDisplay();
+    }
+}
+
+
 function runRestTimer(durationSec) {
     clearInterval(timerInterval);
     timerMode           = 'rest';
@@ -1674,7 +1706,7 @@ function completeWorkout(silent = false) {
     });
 
     progressLogs.push({
-        date:             new Date().toISOString(),
+        date:             new Date(workoutStartTime || Date.now()).toISOString(),
         workoutName:      wo.name,
         workoutIndex:     currentWorkoutIndex,
         exercises:        loggedExercises,
@@ -1732,27 +1764,6 @@ function resetTimerFromDrawer() {
     closeTimerDrawer();
 }
 
-// ── HUD landscape combo button ────────────────────────────────────
-function updateHudComboBtn() {
-    const btn = document.getElementById('hud-combo-btn');
-    if (!btn) return;
-    const isPaused  = timerMode === 'paused-rest' || timerMode === 'paused-countdown' || timerMode === 'paused-countup';
-    const isRunning = timerMode === 'rest' || timerMode === 'countdown' || timerMode === 'countup';
-    if (isRunning) {
-        btn.textContent = '⏸';
-        btn.className = 'combo-stop';
-    } else if (isPaused) {
-        btn.textContent = '▶';
-        btn.className = 'combo-start';
-    } else {
-        btn.textContent = '–';
-        btn.className = 'combo-reset';
-    }
-}
-
-function hudComboAction() {
-    pauseResumeTimer();
-}
 
 // ── CSV download helper ───────────────────────────────────────────
 // iOS Safari in standalone PWA mode silently ignores a.click() on
