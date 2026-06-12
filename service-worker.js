@@ -1,5 +1,5 @@
 // service-worker.js
-const CACHE_NAME = 'fitness-app-v9.1.12.1';
+const CACHE_NAME = 'fitness-app-v9.1.13';
 
 const BASE = self.location.pathname.replace(/\/service-worker\.js$/, '');
 const urlsToCache = [
