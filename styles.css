@@ -1551,33 +1551,36 @@ body:has(#workout-section.active) #floating-menu-btn {
 
 /* ── Phase 3: HUD additions ─────────────────────────────────────── */
 
-/* Phase label below elapsed time */
+/* Phase label in HUD left cell */
 .hud-phase-label {
     font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.4px;
     color: #636366;
-    margin-top: 2px;
     min-height: 14px;
 }
 
-/* Running work total below phase label */
+/* Running work total in HUD left cell */
 .hud-work-label {
     font-size: 11px;
     font-weight: 600;
     color: #30d158;
-    margin-top: 1px;
     min-height: 14px;
 }
 
-/* Wrapper for elapsed time + work total.
-   Portrait: column (work label sits below the clock).
-   Landscape: row (work label sits to the right of the clock, baseline-aligned). */
+/* Portrait: clock on top, meta (phase + work) stacked below */
 .hud-elapsed-row {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
+}
+
+/* Meta block: phase label + work total, always stacked vertically inside */
+.hud-elapsed-meta {
+    display: flex;
+    flex-direction: column;
+    margin-top: 2px;
 }
 
 /* Right cell top row: pause/resume btn + phase label side by side */
@@ -1646,23 +1649,24 @@ body:has(#workout-section.active) #floating-menu-btn {
     animation: timerLowPulse 0.8s ease-in-out infinite;
 }
 
-/* Landscape: hide portrait-only timer row (already removed from HTML but guard) */
+/* Landscape: move phase label + work total inline to the right of the elapsed clock */
 @media (orientation: landscape) and (max-height: 500px) {
     .hud-phase-label { font-size: 10px; }
     .hud-work-label  { font-size: 10px; }
     .hud-timer-top-row { gap: 4px; }
     .pause-resume-btn { font-size: 12px; padding: 2px 7px; }
 
-    /* Shift work total to sit beside the elapsed clock */
+    /* Row: clock on left, meta block (phase + work) on right, bottom-aligned */
     .hud-elapsed-row {
         flex-direction: row;
-        align-items: baseline;
+        align-items: flex-end;
         gap: 8px;
     }
-    /* In landscape the work label needs no top margin since it's inline */
-    .hud-elapsed-row .hud-work-label {
+
+    /* Meta stacks phase + work vertically, no extra top margin needed */
+    .hud-elapsed-meta {
         margin-top: 0;
-        font-size: 10px;
+        margin-bottom: 2px; /* nudge up slightly off the baseline */
     }
 }
 

@@ -52,9 +52,13 @@
                         <button id="menu-btn" onclick="toggleMenu()" aria-label="Open menu">☰</button>
                         <span>⏱ Elapsed</span>
                     </div>
-                    <div id="lapsed-time" class="hud-time">00:00</div>
-                    <div id="hud-workout-phase" class="hud-phase-label"></div>
-                    <div id="hud-work-total" class="hud-work-label"></div>
+                    <div class="hud-elapsed-row">
+                        <div id="lapsed-time" class="hud-time">00:00</div>
+                        <div class="hud-elapsed-meta">
+                            <div id="hud-workout-phase" class="hud-phase-label"></div>
+                            <div id="hud-work-total" class="hud-work-label"></div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Right cell: Pause/Resume + Skip Rest (top-left) + phase label + timer -->
