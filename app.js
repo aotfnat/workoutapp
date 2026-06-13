@@ -2,7 +2,7 @@
 
 // ── Schema version guard ─────────────────────────────────────────
 // Bump SCHEMA_VERSION whenever the data model changes in a breaking way.
-const SCHEMA_VERSION = '5';  // Phase 4: Work/Power calculation stored in log, two-chart progress tab
+const SCHEMA_VERSION = '4';  // Phase 3: per-exercise timer, phase auto-transition, work accumulation
 const storedVersion  = localStorage.getItem('schemaVersion');
 if (storedVersion !== SCHEMA_VERSION) {
     localStorage.removeItem('workoutPlan');
@@ -53,122 +53,30 @@ function getUserHeightInches() {
     return h;
 }
 
-// ── Work / Power / Tension Load calculation helpers ───────────────
-//
-// Unit system:
-//   Metric  (kg + cm):  force in Newtons (kg × 9.81), distance in metres  → Work in Joules
-//   Imperial (lb + in): force in lbf,                 distance in feet     → Work in ft-lbf
-//
-// isometric: no mechanical work; returns Tension Load = force × duration (lbf·s or N·s)
-//
-// All functions that compute "work" return { workJ, powerW, tensionLoad, isIsometric }
-// where exactly one of (workJ | tensionLoad) is non-null and powerW is null for isometric.
-
-function isMetric() {
-    return userSettings.weightUnit === 'kg';
-}
-
-// Returns force in N (metric) or lbf (imperial) from user body-weight + added weight.
-function calcForce(ex, addedWeight) {
-    const bw = getUserWeightInWorkingUnit() || 0;
-    const rawForce = bw * (ex.bodyWeightPct || 0) + (addedWeight || 0);
-    if (isMetric()) return rawForce * 9.81;   // kg → N
-    return rawForce;                           // lb stays lbf
-}
-
-// Returns distance per rep in metres (metric) or feet (imperial).
-function calcDistPerRep(ex) {
-    const h = parseFloat(userSettings.height);
-    if (!h || ex.heightPct === null || ex.heightPct === undefined) return null;
-    if (isMetric()) {
-        // height in cm → metres
-        const heightM = (userSettings.heightUnit === 'cm') ? h / 100 : h * 0.0254;
-        return heightM * (ex.heightPct || 0);
-    } else {
-        // height in inches → feet
-        const heightIn = (userSettings.heightUnit === 'cm') ? h / 2.54 : h;
-        return heightIn * (ex.heightPct || 0) / 12;
-    }
-}
-
-// Returns distance in metres (metric) or feet (imperial) for distance exercises.
-function calcDistMeters(ex, distInput) {
-    const d = distInput || ex.distanceM || ex.target || 0;
-    if (isMetric()) return d;              // stored in metres
-    return d * 3.28084;                   // metres → feet for imperial display
-}
-
-// Main per-set calculation.
-// Returns { workJ: number|null, powerW: number|null, tensionLoad: number|null }
-// workJ / powerW are in J (metric) or ft-lbf (imperial).
-// tensionLoad is in N·s (metric) or lbf·s (imperial).
-function calcSetMetrics(ex, addedWeight, repsOrDist, setTimeSec) {
-    const force = calcForce(ex, addedWeight);
-
-    if (ex.type === 'isometric') {
-        const dur = setTimeSec || ex.target || 0;
-        return { workJ: null, powerW: null, tensionLoad: force * dur };
-    }
-
-    let dist = 0;
-    if (ex.unit === 'meters') {
-        dist = calcDistMeters(ex, repsOrDist);
-    } else {
-        // rep-based or timed-isotonic (repsOrDist = number of reps)
-        const distPerRep = calcDistPerRep(ex);
-        if (distPerRep === null) return { workJ: null, powerW: null, tensionLoad: null };
-        dist = (repsOrDist || 0) * distPerRep;
-    }
-
-    const workJ = force * dist;
-    const powerW = (setTimeSec && setTimeSec > 0) ? workJ / setTimeSec : null;
-    return { workJ, powerW, tensionLoad: null };
-}
-
-// Convenience: calculate work from a completed exercise object (all sets summed).
-// Returns { totalWork, totalPower, totalTensionLoad, isIsometric }
-function calcExerciseTotals(ex) {
-    let totalWork = 0, totalPower = 0, totalTension = 0;
-    let powerCount = 0;
-    const isIso = ex.type === 'isometric';
-
-    for (let i = 0; i < (ex.sets || 0); i++) {
-        const addedW    = (ex.weights     || [])[i] || 0;
-        const setTimeSec = (ex.setTimes   || [])[i] || 0;
-        let repsOrDist  = 0;
-        if (!isIso) {
-            if (ex.unit === 'reps')   repsOrDist = ex.target || 0;
-            else if (ex.unit === 'meters') repsOrDist = ex.distanceM || ex.target || 0;
-            else repsOrDist = (ex.userInputs || [])[i] || 0;
-        }
-        const m = calcSetMetrics(ex, addedW, repsOrDist, setTimeSec);
-        if (isIso) {
-            totalTension += m.tensionLoad || 0;
-        } else {
-            totalWork += m.workJ || 0;
-            if (m.powerW !== null) { totalPower += m.powerW; powerCount++; }
-        }
-    }
-
-    return {
-        totalWork:    isIso ? null        : totalWork,
-        totalPower:   isIso ? null        : (powerCount > 0 ? totalPower / powerCount : null),
-        totalTension: isIso ? totalTension : null,
-        isIsometric:  isIso
-    };
-}
-
-// ── HUD running total (display only) ─────────────────────────────
-// Keeps using the same calcSetMetrics so display matches stored values.
+// ── Work calculation helpers (for HUD running total) ─────────────
+// Returns work in the user's weight unit × distance unit (not Joules — consistent display).
+// Phase 4 will convert to Joules/ft-lbs for storage; here we compute a display total.
 function calcSetWork(ex, addedWeight, repsOrDist, setTimeSec) {
     if (!ex || ex.phase !== 'work') return 0;
-    const m = calcSetMetrics(ex, addedWeight, repsOrDist, setTimeSec);
-    return m.workJ || m.tensionLoad || 0;
-}
+    const bw = getUserWeightInWorkingUnit() || 0;
+    const force = bw * (ex.bodyWeightPct || 0) + (addedWeight || 0);
 
-// Label for the work unit shown in the HUD
-function workUnitLabel() {
-    return isMetric() ? 'J' : 'ft-lbf';
+    if (ex.type === 'isometric') {
+        // Tension load = force × duration (seconds)
+        return force * (setTimeSec || ex.target || 0);
+    }
+
+    if (ex.unit === 'meters') {
+        const dist = repsOrDist || ex.distanceM || ex.target || 0;
+        return force * dist;
+    }
+
+    // rep-based or timed-isotonic (reps logged)
+    const heightIn = getUserHeightInches();
+    if (heightIn === null || ex.heightPct === null || ex.heightPct === undefined) return 0;
+    const distPerRep = heightIn * (ex.heightPct || 0); // inches
+    const reps = repsOrDist || 0;
+    return force * reps * distPerRep;
 }
 
 // ── Workout state ─────────────────────────────────────────────────
@@ -261,6 +169,8 @@ let currentActiveDuration = 0; // full active countdown duration for the current
 
 let soundEnabled = JSON.parse(localStorage.getItem('soundEnabled') ?? 'true');
 
+// Chart
+let chartInstance = null;
 
 // Plan tab — which workout cards are expanded (by wIdx)
 let expandedCards = new Set();
@@ -309,23 +219,6 @@ let calendarMonth = new Date().getMonth();
 
 function loadCalendar() {
     renderCalendar(calendarYear, calendarMonth);
-    loadAppVersion();
-}
-
-function loadAppVersion() {
-    const el = document.getElementById('app-version-label');
-    if (!el) return;
-    if (!('caches' in window)) {
-        el.textContent = 'Version unavailable';
-        return;
-    }
-    caches.keys().then(keys => {
-        // The active cache name is the one that matches our SW naming convention
-        const swCache = keys.find(k => k.startsWith('fitness-app-'));
-        el.textContent = swCache ? swCache : 'Version unavailable';
-    }).catch(() => {
-        el.textContent = 'Version unavailable';
-    });
 }
 
 function renderCalendar(year, month) {
@@ -682,10 +575,23 @@ function openExerciseForm(title, ex) {
         <div class="ex-form">
             <div class="ex-form-section">
                 <label class="ex-form-label">Exercise name / library search</label>
-                <input id="ef-name" class="ex-text-input" type="text"
-                    placeholder="Type to search library…"
-                    value="${escHtml(ex.name)}" autocomplete="off"
-                    oninput="exFormLibrarySearch(this.value)">
+                <div class="ex-form-row" style="gap:6px;margin-bottom:6px;">
+                    <input id="ef-name" class="ex-text-input" type="text"
+                        placeholder="Type to search…"
+                        value="${escHtml(ex.name)}" autocomplete="off"
+                        oninput="exFormLibrarySearch(this.value)" style="flex:1;min-width:0;">
+                    <select id="ef-cat-filter" class="ex-form-select" style="flex:0 0 100px;"
+                        onchange="exFormLibrarySearch(document.getElementById('ef-name').value)">
+                        <option value="all">All</option>
+                        <option value="upper">Upper</option>
+                        <option value="lower">Lower</option>
+                        <option value="core">Core</option>
+                        <option value="cardio">Cardio</option>
+                        <option value="full">Full Body</option>
+                        <option value="mobility">Mobility</option>
+                        <option value="custom">Custom ★</option>
+                    </select>
+                </div>
                 <div id="ef-lib-results" class="ex-lib-results"></div>
             </div>
             <div class="ex-form-section">
@@ -806,16 +712,29 @@ function openExerciseForm(title, ex) {
 function exFormLibrarySearch(query) {
     const resultsEl = document.getElementById('ef-lib-results');
     if (!resultsEl) return;
-    const q = query.trim();
-    if (!q) { resultsEl.innerHTML = ''; return; }
-    const matches = (typeof librarySearch === 'function') ? librarySearch(q).slice(0, 5) : [];
-    if (matches.length === 0) { resultsEl.innerHTML = ''; return; }
-    resultsEl.innerHTML = matches.map(m => `
-        <button class="ex-lib-result-btn" onclick="exFormApplyLibraryEntry(${JSON.stringify(m).replace(/"/g, '&quot;')})">
-            <span class="ex-lib-name">${escHtml(m.name)}</span>
-            <span class="ex-lib-meta">${m.category} · BW ${Math.round(m.bodyWeightPct * 100)}%${m.heightPct !== null ? ` · H ${Math.round(m.heightPct * 100)}%` : ''}</span>
-        </button>
-    `).join('');
+    const q   = query.trim();
+    const cat = document.getElementById('ef-cat-filter')?.value || 'all';
+    // Show results when filtering by category even with no query, or when query exists
+    if (!q && cat === 'all') { resultsEl.innerHTML = ''; return; }
+    const matches = (typeof librarySearch === 'function') ? librarySearch(q, cat).slice(0, 8) : [];
+    if (matches.length === 0) {
+        resultsEl.innerHTML = `<p style="color:#636366;font-size:13px;margin:4px 0;">No matches. Fill in the fields manually or <button class="ex-modal-next" style="padding:4px 10px;font-size:13px;" onclick="saveCurrentAsCustom()">Save as Custom ★</button></p>`;
+        return;
+    }
+    resultsEl.innerHTML = matches.map(m => {
+        const customBadge = m.custom ? ' <span style="color:#ff9f0a;font-size:10px;">★ Custom</span>' : '';
+        const deleteBtnHtml = m.custom
+            ? `<button onclick="event.stopPropagation();deleteCustomLibraryEntry('${escHtml(m.name)}')" style="background:#ff453a;color:#fff;font-size:11px;padding:2px 7px;border:none;border-radius:6px;margin:0;cursor:pointer;flex-shrink:0;">✕</button>`
+            : '';
+        return `
+        <div style="display:flex;align-items:center;gap:6px;">
+            <button class="ex-lib-result-btn" style="flex:1;" onclick="exFormApplyLibraryEntry(${JSON.stringify(m).replace(/"/g, '&quot;')})">
+                <span class="ex-lib-name">${escHtml(m.name)}${customBadge}</span>
+                <span class="ex-lib-meta">${m.category} · BW ${Math.round(m.bodyWeightPct * 100)}%${m.heightPct !== null && m.heightPct !== undefined ? ` · H ${Math.round(m.heightPct * 100)}%` : ''}</span>
+            </button>
+            ${deleteBtnHtml}
+        </div>`;
+    }).join('');
 }
 
 function exFormApplyLibraryEntry(entry) {
@@ -835,6 +754,35 @@ function exFormApplyLibraryEntry(entry) {
     exFormBWPreviewUpdate();
     exFormUpdateTargetLabel();
     exFormTypeChanged();
+}
+
+// Save the current form values as a custom library entry
+function saveCurrentAsCustom() {
+    const name = document.getElementById('ef-name')?.value.trim();
+    if (!name) { alert('Enter an exercise name first.'); return; }
+    const typeVal  = document.querySelector('input[name="ef-type"]:checked')?.value || 'isotonic';
+    const bwPct    = Math.min(Math.max((parseFloat(document.getElementById('ef-bwpct')?.value) || 0) / 100, 0), 1);
+    const hPctRaw  = document.getElementById('ef-heightpct')?.value;
+    const heightPct = (hPctRaw !== undefined && hPctRaw !== '') ? (parseFloat(hPctRaw) / 100 || null) : null;
+    const unit     = typeVal === 'isometric' ? 'seconds' : (document.getElementById('ef-unit')?.value || 'reps');
+    const catFilter = document.getElementById('ef-cat-filter')?.value;
+    const category = (catFilter && catFilter !== 'all' && catFilter !== 'custom') ? catFilter : 'custom';
+    const entry = {
+        name, category, type: typeVal,
+        bodyWeightPct: bwPct, heightPct,
+        distanceM: null, unit,
+        notes: 'Custom exercise'
+    };
+    libraryAddCustom(entry);
+    alert(`✅ "${name}" saved to your custom library!`);
+    exFormLibrarySearch(name);
+}
+
+// Delete a custom library entry by name (called from search result list)
+function deleteCustomLibraryEntry(name) {
+    if (!confirm(`Remove "${name}" from your custom library?`)) return;
+    libraryDeleteCustom(name);
+    exFormLibrarySearch(document.getElementById('ef-name')?.value || '');
 }
 
 function exFormUpdateBWPreview() { exFormBWPreviewUpdate(); }
@@ -1193,7 +1141,8 @@ function updateWorkTotalDisplay() {
         el.textContent = '';
         return;
     }
-    el.textContent = `Work: ${runningWorkTotal.toFixed(0)} ${workUnitLabel()}`;
+    // Display in units consistent with user's setting (force × distance in user units)
+    el.textContent = `Work: ${runningWorkTotal.toFixed(0)} ${userSettings.weightUnit}·${userSettings.heightUnit === 'cm' ? 'cm' : 'in'}`;
 }
 
 // ── Per-exercise timer (Phase 3 complete rewrite) ─────────────────
@@ -1245,25 +1194,23 @@ function updateHudTimerDisplay() {
     }
 
     updatePauseResumeBtn();
+    updateHudComboBtn();
 }
 
 function updatePauseResumeBtn() {
-    const btn     = document.getElementById('pause-resume-btn');
-    const skipBtn = document.getElementById('skip-rest-btn');
+    const btn = document.getElementById('pause-resume-btn');
     if (!btn) return;
-    const isPaused  = timerMode === 'paused-rest' || timerMode === 'paused-countdown' || timerMode === 'paused-countup';
+    const isPaused = timerMode === 'paused-rest' || timerMode === 'paused-countdown' || timerMode === 'paused-countup';
     const isRunning = timerMode === 'rest' || timerMode === 'countdown' || timerMode === 'countup';
-    const isRest    = timerMode === 'rest' || timerMode === 'paused-rest';
     if (isRunning) {
-        btn.textContent  = '⏸';
+        btn.textContent = '⏸';
         btn.style.display = 'block';
     } else if (isPaused) {
-        btn.textContent  = '▶';
+        btn.textContent = '▶';
         btn.style.display = 'block';
     } else {
         btn.style.display = 'none';
     }
-    if (skipBtn) skipBtn.style.display = isRest ? 'block' : 'none';
 }
 
 function pauseResumeTimer() {
@@ -1297,37 +1244,7 @@ function pauseResumeTimer() {
     updateHudTimerDisplay();
 }
 
-// Skip rest to 3 seconds remaining
-function skipToEndOfRest() {
-    if (timerMode !== 'rest' && timerMode !== 'paused-rest') return;
-    if (timerRemaining <= 3) return; // already nearly done
-    timerRemaining = 3;
-    // If paused, resume from 3s; if already running the interval will
-    // pick up timerRemaining naturally on its next tick
-    if (timerMode === 'paused-rest') {
-        clearInterval(timerInterval);
-        timerInterval = null;
-        timerMode = 'rest';
-        currentRestDuration = 3;
-        updateHudTimerDisplay();
-        timerInterval = setInterval(() => {
-            timerRemaining--;
-            updateHudTimerDisplay();
-            if (timerRemaining <= 3 && timerRemaining > 0) playBeep();
-            if (timerRemaining <= 0) {
-                clearInterval(timerInterval);
-                timerInterval = null;
-                playWhistle();
-                startActiveTimer();
-            }
-        }, 1000);
-    } else {
-        // Already running — just update display; interval will count down from 3
-        updateHudTimerDisplay();
-    }
-}
-
-
+// ── Rest timer ─────────────────────────────────────────────────────
 function runRestTimer(durationSec) {
     clearInterval(timerInterval);
     timerMode           = 'rest';
@@ -1696,42 +1613,13 @@ function completeWorkout(silent = false) {
 
     syncElapsedDisplay();
     clearInProgressWorkout();
-
-    // ── Phase 4: calculate per-exercise Work/Power and store in log ──
-    // Only Work-phase exercises count toward workout totals.
-    let workoutTotalWork   = 0;
-    let workoutTotalPower  = 0;
-    let workoutPowerCount  = 0;
-
-    const loggedExercises = currentWorkout.map(ex => {
-        const totals = calcExerciseTotals(ex);
-        // Accumulate workout totals (Work phase only)
-        if (ex.phase === 'work' && !totals.isIsometric) {
-            workoutTotalWork  += totals.totalWork  || 0;
-            if (totals.totalPower !== null) {
-                workoutTotalPower += totals.totalPower;
-                workoutPowerCount++;
-            }
-        }
-        return {
-            ...ex,
-            totalWork:    totals.totalWork,
-            totalPower:   totals.totalPower,
-            totalTension: totals.totalTension,
-            isIsometric:  totals.isIsometric
-        };
-    });
-
     progressLogs.push({
-        date:             new Date(workoutStartTime || Date.now()).toISOString(),
-        workoutName:      wo.name,
-        workoutIndex:     currentWorkoutIndex,
-        exercises:        loggedExercises,
-        duration:         lapsedTime,
-        weightUnit:       userSettings.weightUnit,
-        heightUnit:       userSettings.heightUnit,
-        workoutTotalWork: workoutTotalWork,
-        workoutTotalPower: workoutPowerCount > 0 ? workoutTotalPower / workoutPowerCount : null
+        date:         new Date().toISOString(),
+        workoutName:  wo.name,
+        workoutIndex: currentWorkoutIndex,
+        exercises:    currentWorkout,
+        duration:     lapsedTime,
+        weightUnit:   userSettings.weightUnit
     });
     localStorage.setItem('progressLogs', JSON.stringify(progressLogs));
 
@@ -1781,31 +1669,26 @@ function resetTimerFromDrawer() {
     closeTimerDrawer();
 }
 
-
-// ── CSV download helper ───────────────────────────────────────────
-// iOS Safari in standalone PWA mode silently ignores a.click() on
-// programmatically-created anchors. The workaround is to use a
-// base64 data URL assigned to window.location.href — this works in
-// standalone mode and in mobile Safari, and falls back gracefully
-// in Chrome/Firefox where Blob URLs are fine.
-function triggerCSVDownload(csvContent, filename) {
-    try {
-        // Preferred: Blob URL + visible anchor dispatched as a real click event
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url  = URL.createObjectURL(blob);
-        const a    = document.createElement('a');
-        a.href     = url;
-        a.download = filename;
-        a.style.position = 'fixed';
-        a.style.opacity  = '0';
-        document.body.appendChild(a);
-        a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 5000);
-    } catch (e) {
-        // Fallback: data URL via window.location (no custom filename but always works)
-        const encoded = encodeURIComponent(csvContent);
-        window.location.href = 'data:text/csv;charset=utf-8,' + encoded;
+// ── HUD landscape combo button ────────────────────────────────────
+function updateHudComboBtn() {
+    const btn = document.getElementById('hud-combo-btn');
+    if (!btn) return;
+    const isPaused  = timerMode === 'paused-rest' || timerMode === 'paused-countdown' || timerMode === 'paused-countup';
+    const isRunning = timerMode === 'rest' || timerMode === 'countdown' || timerMode === 'countup';
+    if (isRunning) {
+        btn.textContent = '⏸';
+        btn.className = 'combo-stop';
+    } else if (isPaused) {
+        btn.textContent = '▶';
+        btn.className = 'combo-start';
+    } else {
+        btn.textContent = '–';
+        btn.className = 'combo-reset';
     }
+}
+
+function hudComboAction() {
+    pauseResumeTimer();
 }
 
 // ── CSV BACKUP & RESTORE ──────────────────────────────────────────
@@ -1850,8 +1733,16 @@ function exportPlanCSV() {
         }
     });
     const csvContent = rows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
     const dateStr = new Date().toISOString().slice(0, 10);
-    triggerCSVDownload(csvContent, `workout-plan-${dateStr}.csv`);
+    const a = document.createElement('a');
+    a.href     = url;
+    a.download = `workout-plan-${dateStr}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
 function importPlanCSV(event) {
@@ -2051,7 +1942,7 @@ function updateSoundUI() {
 }
 
 // ── PROGRESS CSV BACKUP & RESTORE ────────────────────────────────
-const PROGRESS_CSV_HEADER = 'date,workout_name,duration_seconds,weight_unit,height_unit,workout_total_work,workout_total_power,exercise_name,type,phase,sets,target,unit,bodyWeightPct,heightPct,weights,timedInput,total_work,total_power,total_tension';
+const PROGRESS_CSV_HEADER = 'date,workout_name,duration_seconds,weight_unit,exercise_name,type,phase,sets,target,unit,bodyWeightPct,heightPct,weights,timedInput';
 
 function exportProgressCSV() {
     if (progressLogs.length === 0) {
@@ -2060,20 +1951,17 @@ function exportProgressCSV() {
     }
     const rows = [PROGRESS_CSV_HEADER];
     progressLogs.forEach(log => {
-        const date    = csvEscape(log.date || '');
-        const woName  = csvEscape(log.workoutName || log.day || '');
-        const dur     = csvEscape(log.duration || 0);
-        const wu      = csvEscape(log.weightUnit || userSettings.weightUnit);
-        const hu      = csvEscape(log.heightUnit || userSettings.heightUnit || 'in');
-        const wkWork  = csvEscape(log.workoutTotalWork  ?? '');
-        const wkPower = csvEscape(log.workoutTotalPower ?? '');
+        const date     = csvEscape(log.date || '');
+        const woName   = csvEscape(log.workoutName || log.day || '');
+        const duration = csvEscape(log.duration || 0);
+        const wu       = csvEscape(log.weightUnit || userSettings.weightUnit);
         if (!log.exercises || log.exercises.length === 0) {
-            rows.push([date, woName, dur, wu, hu, wkWork, wkPower, '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
+            rows.push([date, woName, duration, wu, '', '', '', '', '', '', '', '', '', ''].join(','));
         } else {
             log.exercises.forEach(ex => {
                 const weights = Array.isArray(ex.weights) ? ex.weights.join('|') : '';
                 rows.push([
-                    date, woName, dur, wu, hu, wkWork, wkPower,
+                    date, woName, duration, wu,
                     csvEscape(ex.name),
                     csvEscape(ex.type          || 'isotonic'),
                     csvEscape(ex.phase         || 'work'),
@@ -2083,17 +1971,22 @@ function exportProgressCSV() {
                     csvEscape(ex.bodyWeightPct ?? 0),
                     csvEscape(ex.heightPct     ?? ''),
                     csvEscape(weights),
-                    csvEscape(ex.timedInput    || 'reps'),
-                    csvEscape(ex.totalWork     ?? ''),
-                    csvEscape(ex.totalPower    ?? ''),
-                    csvEscape(ex.totalTension  ?? '')
+                    csvEscape(ex.timedInput    || 'reps')
                 ].join(','));
             });
         }
     });
     const csvContent = rows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
     const dateStr  = new Date().toISOString().slice(0, 10);
-    triggerCSVDownload(csvContent, `progress-log-${dateStr}.csv`);
+    const a = document.createElement('a');
+    a.href     = url;
+    a.download = `progress-log-${dateStr}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
 function importProgressCSV(event) {
@@ -2111,54 +2004,31 @@ function importProgressCSV(event) {
                 alert("Import failed: unexpected header.\nExpected: " + PROGRESS_CSV_HEADER);
                 return;
             }
-            // Detect whether this is old format (14 cols) or new format (20 cols)
-            const isNewFormat = header.includes('workout_total_work');
             const logMap = {}, logOrder = [];
             lines.slice(1).forEach(line => {
-                const cols = parseCSVLine(line);
-                let ci = 0;
-                const date       = cols[ci++]?.trim() || '';
-                const woName     = cols[ci++]?.trim() || '';
-                const duration   = parseInt(cols[ci++]) || 0;
-                const weightUnit = cols[ci++]?.trim() || userSettings.weightUnit;
-                let heightUnit   = userSettings.heightUnit || 'in';
-                let workoutTotalWork  = null;
-                let workoutTotalPower = null;
-                if (isNewFormat) {
-                    heightUnit        = cols[ci++]?.trim() || heightUnit;
-                    const ww = cols[ci++]?.trim(); workoutTotalWork  = ww  !== '' ? parseFloat(ww)  : null;
-                    const wp = cols[ci++]?.trim(); workoutTotalPower = wp  !== '' ? parseFloat(wp)  : null;
-                }
-                const exName        = cols[ci++]?.trim() || '';
-                const type          = cols[ci++]?.trim() || 'isotonic';
-                const phase         = cols[ci++]?.trim() || 'work';
-                const sets          = parseInt(cols[ci++]) || 0;
-                const target        = parseInt(cols[ci++]) || 0;
-                const unit          = cols[ci++]?.trim() || 'reps';
-                const bodyWeightPct = parseFloat(cols[ci++]) || 0;
-                const hpRaw = cols[ci++]?.trim(); const heightPct = hpRaw !== '' ? parseFloat(hpRaw) : null;
-                const weightsRaw    = cols[ci++]?.trim() || '';
+                const cols          = parseCSVLine(line);
+                const date          = cols[0]?.trim()  || '';
+                const woName        = cols[1]?.trim()  || '';
+                const duration      = parseInt(cols[2]) || 0;
+                const weightUnit    = cols[3]?.trim()  || userSettings.weightUnit;
+                const exName        = cols[4]?.trim()  || '';
+                const type          = cols[5]?.trim()  || 'isotonic';
+                const phase         = cols[6]?.trim()  || 'work';
+                const sets          = parseInt(cols[7]) || 0;
+                const target        = parseInt(cols[8]) || 0;
+                const unit          = cols[9]?.trim()  || 'reps';
+                const bodyWeightPct = parseFloat(cols[10]) || 0;
+                const heightPct     = cols[11]?.trim() !== '' ? parseFloat(cols[11]) : null;
+                const weightsRaw    = cols[12]?.trim() || '';
                 const weights       = weightsRaw ? weightsRaw.split('|').map(Number) : [];
-                const timedInput    = cols[ci++]?.trim() || 'reps';
-                let totalWork = null, totalPower = null, totalTension = null;
-                if (isNewFormat) {
-                    const tw = cols[ci++]?.trim(); totalWork    = tw !== '' ? parseFloat(tw) : null;
-                    const tp = cols[ci++]?.trim(); totalPower   = tp !== '' ? parseFloat(tp) : null;
-                    const tt = cols[ci++]?.trim(); totalTension = tt !== '' ? parseFloat(tt) : null;
-                }
+                const timedInput    = cols[13]?.trim() || 'reps';
                 const key = date + '||' + woName;
-                if (!logMap[key]) {
-                    logMap[key] = { date, workoutName: woName, duration, weightUnit, heightUnit,
-                        workoutTotalWork, workoutTotalPower, exercises: [] };
-                    logOrder.push(key);
-                }
+                if (!logMap[key]) { logMap[key] = { date, workoutName: woName, duration, weightUnit, exercises: [] }; logOrder.push(key); }
                 if (exName) {
                     logMap[key].exercises.push({
                         name: exName, type, phase,
                         bodyWeightPct, heightPct,
-                        sets, target, unit, timedInput, weights,
-                        totalWork, totalPower, totalTension,
-                        isIsometric: type === 'isometric'
+                        sets, target, unit, timedInput, weights
                     });
                 }
             });
@@ -2179,255 +2049,38 @@ function importProgressCSV(event) {
 }
 
 // ── PROGRESS TAB ─────────────────────────────────────────────────
-let chartWorkout  = null;  // Chart.js instance for workout chart
-let chartExercise = null;  // Chart.js instance for exercise chart
-
 function loadProgress() {
-    renderProgressLog();
-    renderProgressCharts();
-}
-
-function renderProgressLog() {
     const logDiv = document.getElementById('progress-log');
     logDiv.innerHTML = '';
     [...progressLogs].reverse().forEach(log => {
-        const wu = log.weightUnit || userSettings.weightUnit;
-        const unit = isMetric() ? 'J' : 'ft-lbf';
-        const workLine = log.workoutTotalWork != null
-            ? `<p class="prog-work-summary">💪 Work: <strong>${log.workoutTotalWork.toFixed(0)} ${unit}</strong>${log.workoutTotalPower != null ? `&nbsp;&nbsp;⚡ Power: <strong>${log.workoutTotalPower.toFixed(1)} ${unit}/s</strong>` : ''}</p>`
-            : '';
         logDiv.innerHTML += `
             <div>
-                <h4>${new Date(log.date).toLocaleDateString()} – ${escHtml(log.workoutName || log.day || '')} – ${formatTime(log.duration)}</h4>
-                ${workLine}
-                ${(log.exercises || []).filter(ex => ex.phase === 'work').map(ex => {
-                    const wval = ex.isIsometric
-                        ? (ex.totalTension != null ? `Tension: ${ex.totalTension.toFixed(0)} ${unit}·s` : '')
-                        : (ex.totalWork    != null ? `Work: ${ex.totalWork.toFixed(0)} ${unit}` + (ex.totalPower != null ? ` · Power: ${ex.totalPower.toFixed(1)} ${unit}/s` : '') : '');
-                    return `<p>${escHtml(ex.name)}: ${wval || ex.weights.join(', ') + ' ' + wu}</p>`;
-                }).join('')}
+                <h4>${new Date(log.date).toLocaleDateString()} – ${log.workoutName || log.day || ''} – ${formatTime(log.duration)}</h4>
+                ${log.exercises.map(ex => `<p>${escHtml(ex.name)}: ${ex.weights.join(', ')} ${log.weightUnit || userSettings.weightUnit}</p>`).join('')}
             </div>`;
     });
+    renderChart();
 }
 
-// Build list of unique workout names from logs
-function getWorkoutNames() {
-    const seen = new Set();
-    const names = [];
+function renderChart() {
+    const ctx = document.getElementById('progress-chart').getContext('2d');
+    const data = {};
     progressLogs.forEach(log => {
-        const n = log.workoutName || log.day || '';
-        if (n && !seen.has(n)) { seen.add(n); names.push(n); }
-    });
-    return names;
-}
-
-// Build list of unique exercise names that appear in Work phase
-function getWorkExerciseNames() {
-    const seen = new Set();
-    const names = [];
-    progressLogs.forEach(log => {
-        (log.exercises || []).forEach(ex => {
-            if ((ex.phase || 'work') === 'work' && !seen.has(ex.name)) {
-                seen.add(ex.name); names.push(ex.name);
-            }
+        log.exercises.forEach(ex => {
+            if (!data[ex.name]) data[ex.name] = [];
+            const avg = ex.weights.length ? ex.weights.reduce((a,b)=>a+b,0)/ex.weights.length : 0;
+            data[ex.name].push({ date: log.date, avg });
         });
     });
-    return names;
-}
-
-function renderProgressCharts() {
-    const container = document.getElementById('progress-charts-container');
-    if (!container) return;
-
-    const workoutNames  = getWorkoutNames();
-    const exerciseNames = getWorkExerciseNames();
-
-    // Default selections
-    const lastWorkout  = workoutNames[workoutNames.length - 1]  || '';
-    const lastExName   = (() => {
-        if (progressLogs.length === 0) return '';
-        const lastLog = progressLogs[progressLogs.length - 1];
-        const firstWorkEx = (lastLog.exercises || []).find(ex => (ex.phase || 'work') === 'work');
-        return firstWorkEx ? firstWorkEx.name : (exerciseNames[0] || '');
-    })();
-
-    const woSel  = document.getElementById('prog-workout-select')?.value  || lastWorkout;
-    const exSel  = document.getElementById('prog-exercise-select')?.value || lastExName;
-
-    container.innerHTML = `
-        <div class="prog-chart-block">
-            <div class="prog-chart-header">
-                <span class="prog-chart-title">📊 Workout: Work &amp; Power over Time</span>
-                <select id="prog-workout-select" class="prog-select" onchange="renderProgressCharts()">
-                    ${workoutNames.map(n => `<option value="${escHtml(n)}" ${n === woSel ? 'selected' : ''}>${escHtml(n)}</option>`).join('')}
-                    ${workoutNames.length === 0 ? '<option>No workouts logged</option>' : ''}
-                </select>
-            </div>
-            <div class="prog-chart-wrap">
-                <canvas id="chart-workout" height="220"></canvas>
-            </div>
-        </div>
-        <div class="prog-chart-block">
-            <div class="prog-chart-header">
-                <span class="prog-chart-title">🏋️ Exercise: Work &amp; Power over Time</span>
-                <select id="prog-exercise-select" class="prog-select" onchange="renderProgressCharts()">
-                    ${exerciseNames.map(n => `<option value="${escHtml(n)}" ${n === exSel ? 'selected' : ''}>${escHtml(n)}</option>`).join('')}
-                    ${exerciseNames.length === 0 ? '<option>No exercises logged</option>' : ''}
-                </select>
-            </div>
-            <div class="prog-chart-wrap">
-                <canvas id="chart-exercise" height="220"></canvas>
-            </div>
-        </div>
-    `;
-
-    renderWorkoutChart(woSel);
-    renderExerciseChart(exSel);
-}
-
-function renderWorkoutChart(workoutName) {
-    const canvas = document.getElementById('chart-workout');
-    if (!canvas) return;
-
-    const filtered = progressLogs.filter(log =>
-        (log.workoutName || log.day || '') === workoutName &&
-        log.workoutTotalWork != null
-    );
-
-    const labels = filtered.map(log => new Date(log.date).toLocaleDateString());
-    const workData  = filtered.map(log => +(log.workoutTotalWork || 0).toFixed(1));
-    const powerData = filtered.map(log => log.workoutTotalPower != null ? +(log.workoutTotalPower).toFixed(2) : null);
-
-    const unit = isMetric() ? 'J' : 'ft-lbf';
-
-    if (chartWorkout) chartWorkout.destroy();
-    chartWorkout = new Chart(canvas.getContext('2d'), {
-        type: 'line',
-        data: {
-            labels,
-            datasets: [
-                {
-                    label: `Total Work (${unit})`,
-                    data: workData,
-                    borderColor: '#30d158',
-                    backgroundColor: 'rgba(48,209,88,0.1)',
-                    borderWidth: 2,
-                    pointRadius: 4,
-                    tension: 0.3,
-                    yAxisID: 'yWork',
-                    fill: true
-                },
-                {
-                    label: `Avg Power (${unit}/s)`,
-                    data: powerData,
-                    borderColor: '#ff9f0a',
-                    backgroundColor: 'rgba(255,159,10,0.08)',
-                    borderWidth: 2,
-                    pointRadius: 4,
-                    tension: 0.3,
-                    yAxisID: 'yPower',
-                    spanGaps: true
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            interaction: { mode: 'index', intersect: false },
-            plugins: {
-                legend: { labels: { color: '#1c1c1e', font: { size: 12 } } },
-                tooltip: { callbacks: {
-                    label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(1) : '—'}`
-                }}
-            },
-            scales: {
-                x:      { ticks: { color: '#636366', maxRotation: 45 }, grid: { color: '#e5e5ea' } },
-                yWork:  { type: 'linear', position: 'left',  beginAtZero: true, ticks: { color: '#30d158' }, grid: { color: '#e5e5ea' }, title: { display: true, text: `Work (${unit})`, color: '#30d158' } },
-                yPower: { type: 'linear', position: 'right', beginAtZero: true, ticks: { color: '#ff9f0a' }, grid: { drawOnChartArea: false }, title: { display: true, text: `Power (${unit}/s)`, color: '#ff9f0a' } }
-            }
-        }
-    });
-}
-
-function renderExerciseChart(exerciseName) {
-    const canvas = document.getElementById('chart-exercise');
-    if (!canvas) return;
-
-    // Gather per-exercise data points from all logs
-    const points = [];
-    progressLogs.forEach(log => {
-        const ex = (log.exercises || []).find(e =>
-            e.name === exerciseName && (e.phase || 'work') === 'work'
-        );
-        if (!ex) return;
-        points.push({ date: new Date(log.date).toLocaleDateString(), ex });
-    });
-
-    const labels    = points.map(p => p.date);
-    const isIso     = points.length > 0 && points[0].ex.isIsometric;
-    const unit      = isMetric() ? 'J' : 'ft-lbf';
-
-    const workData  = points.map(p =>
-        isIso
-            ? (p.ex.totalTension != null ? +p.ex.totalTension.toFixed(1) : null)
-            : (p.ex.totalWork    != null ? +p.ex.totalWork.toFixed(1)    : null)
-    );
-    const powerData = isIso ? null : points.map(p =>
-        p.ex.totalPower != null ? +p.ex.totalPower.toFixed(2) : null
-    );
-
-    const workLabel  = isIso ? `Tension Load (${unit}·s)` : `Total Work (${unit})`;
-    const powerLabel = `Avg Power (${unit}/s)`;
-
-    const datasets = [
-        {
-            label: workLabel,
-            data: workData,
-            borderColor: '#0a84ff',
-            backgroundColor: 'rgba(10,132,255,0.1)',
-            borderWidth: 2,
-            pointRadius: 4,
-            tension: 0.3,
-            yAxisID: 'yWork',
-            fill: true,
-            spanGaps: true
-        }
-    ];
-
-    const scales = {
-        x:     { ticks: { color: '#636366', maxRotation: 45 }, grid: { color: '#e5e5ea' } },
-        yWork: { type: 'linear', position: 'left', beginAtZero: true, ticks: { color: '#0a84ff' }, grid: { color: '#e5e5ea' }, title: { display: true, text: workLabel, color: '#0a84ff' } }
-    };
-
-    if (!isIso && powerData) {
-        datasets.push({
-            label: powerLabel,
-            data: powerData,
-            borderColor: '#ff453a',
-            backgroundColor: 'rgba(255,69,58,0.08)',
-            borderWidth: 2,
-            pointRadius: 4,
-            tension: 0.3,
-            yAxisID: 'yPower',
-            spanGaps: true
-        });
-        scales.yPower = { type: 'linear', position: 'right', beginAtZero: true, ticks: { color: '#ff453a' }, grid: { drawOnChartArea: false }, title: { display: true, text: powerLabel, color: '#ff453a' } };
-    }
-
-    if (chartExercise) chartExercise.destroy();
-    chartExercise = new Chart(canvas.getContext('2d'), {
-        type: 'line',
-        data: { labels, datasets },
-        options: {
-            responsive: true,
-            interaction: { mode: 'index', intersect: false },
-            plugins: {
-                legend: { labels: { color: '#1c1c1e', font: { size: 12 } } },
-                tooltip: { callbacks: {
-                    label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(1) : '—'}`
-                }}
-            },
-            scales
-        }
+    const datasets = Object.keys(data).map(name => ({
+        label: name,
+        data:  data[name].map(d => ({ x: d.date, y: d.avg })),
+        borderColor: getRandomColor(), fill: false
+    }));
+    if (chartInstance) chartInstance.destroy();
+    chartInstance = new Chart(ctx, {
+        type: 'line', data: { datasets },
+        options: { scales: { x: { type:'time', time:{ unit:'day' } }, y: { beginAtZero:true } } }
     });
 }
 
@@ -2449,6 +2102,61 @@ function loadSettings() {
     if (huEl) huEl.value = userSettings.heightUnit || 'in';
     updateSettingsWeightLabel();
     updateSettingsHeightLabel();
+    renderCustomLibraryList();
+}
+
+// Render the list of existing custom exercises in the Settings panel
+function renderCustomLibraryList() {
+    const listEl = document.getElementById('custom-library-list');
+    if (!listEl) return;
+    const custom = (typeof loadCustomExercises === 'function') ? loadCustomExercises() : [];
+    if (custom.length === 0) {
+        listEl.innerHTML = '<p style="font-size:13px;color:#aeaeb2;font-style:italic;">No custom exercises yet.</p>';
+        return;
+    }
+    listEl.innerHTML = `
+        <p style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#8e8e93;margin:0 0 8px;">Your Custom Exercises</p>
+        ${custom.map(e => `
+            <div style="display:flex;align-items:center;justify-content:space-between;background:#f2f2f7;border-radius:10px;padding:10px 12px;margin-bottom:6px;">
+                <div>
+                    <span style="font-size:14px;font-weight:600;color:#1c1c1e;">${escHtml(e.name)}</span>
+                    <span style="font-size:12px;color:#636366;margin-left:6px;">${e.category} · BW ${Math.round((e.bodyWeightPct||0)*100)}%${e.heightPct != null ? ` · H ${Math.round(e.heightPct*100)}%` : ''}</span>
+                </div>
+                <button onclick="deleteCustomLibraryEntry('${escHtml(e.name)}')" style="background:#ff453a;color:#fff;font-size:12px;padding:4px 10px;border:none;border-radius:8px;margin:0;cursor:pointer;">✕</button>
+            </div>
+        `).join('')}
+    `;
+}
+
+// Save a custom exercise from the Settings panel form
+function saveCustomLibraryFromSettings() {
+    const name = document.getElementById('cl-name')?.value.trim();
+    if (!name) { alert('Enter an exercise name.'); return; }
+    const cat      = document.getElementById('cl-cat')?.value   || 'custom';
+    const type     = document.getElementById('cl-type')?.value  || 'isotonic';
+    const bwRaw    = parseFloat(document.getElementById('cl-bwpct')?.value);
+    const hRaw     = document.getElementById('cl-hpct')?.value;
+    const unit     = document.getElementById('cl-unit')?.value  || 'reps';
+    const bwPct    = isNaN(bwRaw) ? 0 : Math.min(Math.max(bwRaw / 100, 0), 1);
+    const hPct     = (hRaw !== '' && hRaw !== undefined && !isNaN(parseFloat(hRaw))) ? parseFloat(hRaw) / 100 : null;
+
+    libraryAddCustom({ name, category: cat, type, bodyWeightPct: bwPct, heightPct: hPct, distanceM: null, unit, notes: 'Custom exercise' });
+    // Clear form
+    document.getElementById('cl-name').value  = '';
+    document.getElementById('cl-bwpct').value = '0';
+    document.getElementById('cl-hpct').value  = '';
+    alert(`✅ "${name}" added to your custom library!`);
+    renderCustomLibraryList();
+}
+
+// Delete a custom library entry (called from both Settings and search results)
+function deleteCustomLibraryEntry(name) {
+    if (!confirm(`Remove "${name}" from your custom library?`)) return;
+    if (typeof libraryDeleteCustom === 'function') libraryDeleteCustom(name);
+    renderCustomLibraryList();
+    // Refresh search results if modal is open
+    const resultsEl = document.getElementById('ef-lib-results');
+    if (resultsEl) exFormLibrarySearch(document.getElementById('ef-name')?.value || '');
 }
 
 function updateSettingsWeightLabel() {
@@ -2470,11 +2178,40 @@ function saveSettings() {
     const heightUnit = (document.getElementById('height-unit')?.value) || 'in';
     if (weightVal && weightVal <= 0) { alert('Please enter a positive body weight.'); return; }
     if (heightVal && heightVal <= 0) { alert('Please enter a positive height.'); return; }
-    userSettings.weight     = weightVal || '';
-    userSettings.height     = heightVal || '';
+
+    // Auto-convert the entered values if the unit changed, so the number stays correct
+    // (user enters 180 lb, switches to kg → convert to 81.6 automatically)
+    const prevWeightUnit = userSettings.weightUnit;
+    const prevHeightUnit = userSettings.heightUnit;
+
+    let newWeight = weightVal || '';
+    let newHeight = heightVal || '';
+
+    if (newWeight !== '' && weightUnit !== prevWeightUnit) {
+        if (weightUnit === 'kg' && prevWeightUnit === 'lb') {
+            newWeight = +(newWeight * 0.453592).toFixed(1);
+        } else if (weightUnit === 'lb' && prevWeightUnit === 'kg') {
+            newWeight = +(newWeight * 2.20462).toFixed(1);
+        }
+    }
+
+    if (newHeight !== '' && heightUnit !== prevHeightUnit) {
+        if (heightUnit === 'cm' && prevHeightUnit === 'in') {
+            newHeight = +(newHeight * 2.54).toFixed(1);
+        } else if (heightUnit === 'in' && prevHeightUnit === 'cm') {
+            newHeight = +(newHeight / 2.54).toFixed(1);
+        }
+    }
+
+    userSettings.weight     = newWeight;
+    userSettings.height     = newHeight;
     userSettings.weightUnit = weightUnit;
     userSettings.heightUnit = heightUnit;
     localStorage.setItem('userSettings', JSON.stringify(userSettings));
+
+    // Update input fields to show converted values
+    if (newWeight !== '') document.getElementById('user-weight').value = newWeight;
+    if (newHeight !== '') document.getElementById('user-height').value = newHeight;
     if (workoutInProgress) renderExercise();
     loadProgress();
     alert('Settings saved!');
