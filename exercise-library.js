@@ -469,263 +469,35 @@ const EXERCISE_LIBRARY = [
         heightPct: 0.20,
         unit: 'reps',
         notes: '~100% BW; Divide step height by your height x 100% to get height %'
-    },
-
-    // ── UPPER BODY (additional) ──────────────────────────────────────────────
-    {
-        name: 'Decline Push-Up',
-        category: 'upper',
-        type: 'isotonic',
-        bodyWeightPct: 0.70,
-        heightPct: 0.30,
-        unit: 'reps',
-        notes: '~70% BW lifted (feet elevated shifts load forward); ~30% height ROM'
-    },
-    {
-        name: 'Bench Press',
-        category: 'upper',
-        type: 'isotonic',
-        bodyWeightPct: 0.00,
-        heightPct: 0.25,
-        unit: 'reps',
-        notes: 'BW load = 0; uses added weight; ~25% height ROM (bar to chest and back)'
-    },
-    {
-        name: 'Incline Bench Press',
-        category: 'upper',
-        type: 'isotonic',
-        bodyWeightPct: 0.00,
-        heightPct: 0.25,
-        unit: 'reps',
-        notes: 'BW load = 0; uses added weight; incline angle shifts load to upper chest'
-    },
-    {
-        name: 'Decline Bench Press',
-        category: 'upper',
-        type: 'isotonic',
-        bodyWeightPct: 0.00,
-        heightPct: 0.22,
-        unit: 'reps',
-        notes: 'BW load = 0; uses added weight; shorter ROM than flat bench ~22% height'
-    },
-    {
-        name: 'Shoulder Press',
-        category: 'upper',
-        type: 'isotonic',
-        bodyWeightPct: 0.00,
-        heightPct: 0.38,
-        unit: 'reps',
-        notes: 'BW load = 0; uses added weight; same ROM as Overhead Press; seated or standing'
-    },
-    {
-        name: 'Push Press',
-        category: 'upper',
-        type: 'isotonic',
-        bodyWeightPct: 0.05,
-        heightPct: 0.55,
-        unit: 'reps',
-        notes: 'BW = 5% (leg drive contribution); uses added weight; ~55% height ROM floor-to-lockout'
-    },
-    {
-        name: 'Face Pull',
-        category: 'upper',
-        type: 'isotonic',
-        bodyWeightPct: 0.00,
-        heightPct: 0.15,
-        unit: 'reps',
-        notes: 'BW load = 0; cable/band; ~15% height ROM horizontal pull to face'
-    },
-    {
-        name: 'Reverse Fly',
-        category: 'upper',
-        type: 'isotonic',
-        bodyWeightPct: 0.00,
-        heightPct: 0.18,
-        unit: 'reps',
-        notes: 'BW load = 0; dumbbell/cable; ~18% height arc ROM; rear delt focus'
-    },
-    {
-        name: 'Back Fly',
-        category: 'upper',
-        type: 'isotonic',
-        bodyWeightPct: 0.00,
-        heightPct: 0.18,
-        unit: 'reps',
-        notes: 'BW load = 0; same movement as Reverse Fly; rear delt / upper back'
-    },
-    {
-        name: 'Lateral Shoulder Raise',
-        category: 'upper',
-        type: 'isotonic',
-        bodyWeightPct: 0.00,
-        heightPct: 0.18,
-        unit: 'reps',
-        notes: 'BW load = 0; uses added weight; same arc ROM as Lateral Raise'
-    },
-    {
-        name: 'Shoulder T',
-        category: 'upper',
-        type: 'isotonic',
-        bodyWeightPct: 0.00,
-        heightPct: 0.20,
-        unit: 'reps',
-        notes: 'BW load = 0; band/cable T-raise targeting rear delts and traps; ~20% height arc'
-    },
-    {
-        name: 'Shoulder W',
-        category: 'upper',
-        type: 'isotonic',
-        bodyWeightPct: 0.00,
-        heightPct: 0.18,
-        unit: 'reps',
-        notes: 'BW load = 0; band/cable W-raise; external rotation focus; ~18% height arc'
-    },
-
-    // ── LOWER BODY (additional) ──────────────────────────────────────────────
-    {
-        name: 'Front Squat',
-        category: 'lower',
-        type: 'isotonic',
-        bodyWeightPct: 1.00,
-        heightPct: 0.50,
-        unit: 'reps',
-        notes: '~100% BW; bar racked on front of shoulders; ~50% height ROM, same as back squat'
-    },
-
-    // ── CORE (additional) ────────────────────────────────────────────────────
-    {
-        name: 'Dead Bug',
-        category: 'core',
-        type: 'isotonic',
-        bodyWeightPct: 0.30,
-        heightPct: 0.20,
-        unit: 'reps',
-        notes: '~30% BW moving limb load; ~20% height ROM per rep (arm/leg extension)'
-    },
-    {
-        name: 'Torso Twist',
-        category: 'core',
-        type: 'isotonic',
-        bodyWeightPct: 0.20,
-        heightPct: 0.12,
-        unit: 'reps',
-        notes: '~20% BW; rotational core; ~12% height arc ROM per rep'
-    },
-
-    // ── MOBILITY / WARMUP ────────────────────────────────────────────────────
-    {
-        name: 'Leg Swing',
-        category: 'mobility',
-        type: 'isotonic',
-        bodyWeightPct: 0.30,
-        heightPct: 0.35,
-        unit: 'reps',
-        notes: '~30% BW (single leg in swing); ~35% height arc per swing; dynamic hip mobility'
-    },
-    {
-        name: 'Dynamic Arm Swing',
-        category: 'mobility',
-        type: 'isotonic',
-        bodyWeightPct: 0.05,
-        heightPct: 0.25,
-        unit: 'reps',
-        notes: '~5% BW (arm weight); ~25% height arc; dynamic shoulder warm-up'
-    },
-    {
-        name: 'Wall Ball Shot',
-        category: 'full',
-        type: 'isotonic',
-        bodyWeightPct: 1.00,
-        heightPct: 0.90,
-        unit: 'reps',
-        notes: '~100% BW; squat + overhead throw; ~90% height ROM floor-to-release'
     }
 ];
-
-// ── Custom exercise storage ───────────────────────────────────────────────────
-// Custom exercises are stored in localStorage under the key 'customExercises'.
-// They have the same structure as EXERCISE_LIBRARY entries, plus a `custom: true` flag.
-
-function loadCustomExercises() {
-    try {
-        return JSON.parse(localStorage.getItem('customExercises') || '[]');
-    } catch(e) { return []; }
-}
-
-function saveCustomExercises(list) {
-    localStorage.setItem('customExercises', JSON.stringify(list));
-}
-
-/**
- * Return the full combined library (built-in + custom), sorted alphabetically.
- * Custom exercises have a `custom: true` flag.
- */
-function libraryGetAll() {
-    const custom = loadCustomExercises();
-    return [...EXERCISE_LIBRARY, ...custom].sort((a, b) => a.name.localeCompare(b.name));
-}
-
-/**
- * Add or update a custom exercise.
- * If an entry with the same name (case-insensitive) already exists in the custom list, it is replaced.
- * Built-in exercises cannot be overwritten.
- */
-function libraryAddCustom(entry) {
-    const custom = loadCustomExercises();
-    const idx = custom.findIndex(e => e.name.toLowerCase() === entry.name.trim().toLowerCase());
-    const newEntry = { ...entry, name: entry.name.trim(), custom: true };
-    if (idx >= 0) {
-        custom[idx] = newEntry;
-    } else {
-        custom.push(newEntry);
-    }
-    saveCustomExercises(custom);
-    return newEntry;
-}
-
-/**
- * Delete a custom exercise by name (case-insensitive).
- * Returns true if deleted, false if not found or is a built-in entry.
- */
-function libraryDeleteCustom(name) {
-    const q = name.trim().toLowerCase();
-    const custom = loadCustomExercises();
-    const idx = custom.findIndex(e => e.name.toLowerCase() === q);
-    if (idx < 0) return false;
-    custom.splice(idx, 1);
-    saveCustomExercises(custom);
-    return true;
-}
 
 // ── Library lookup helpers ────────────────────────────────────────────────────
 
 /**
- * Find an exercise by name (case-insensitive) in combined library.
+ * Find an exercise by name (case-insensitive).
  * Returns the library entry or null.
  */
 function libraryFind(name) {
     const q = name.trim().toLowerCase();
-    return libraryGetAll().find(e => e.name.toLowerCase() === q) || null;
+    return EXERCISE_LIBRARY.find(e => e.name.toLowerCase() === q) || null;
 }
 
 /**
- * Return all exercises in a given category from the combined library.
- * category: 'upper' | 'lower' | 'core' | 'cardio' | 'full' | 'mobility' | 'custom' | 'all'
+ * Return all exercises in a given category.
+ * category: 'upper' | 'lower' | 'core' | 'cardio' | 'full' | 'all'
  */
 function libraryByCategory(category) {
-    const all = libraryGetAll();
-    if (category === 'all')    return all;
-    if (category === 'custom') return all.filter(e => e.custom);
-    return all.filter(e => e.category === category);
+    if (category === 'all') return EXERCISE_LIBRARY;
+    return EXERCISE_LIBRARY.filter(e => e.category === category);
 }
 
 /**
- * Search the combined library by partial name match, optionally filtered by category.
+ * Search the library by partial name match.
  * Returns an array of matching entries.
  */
-function librarySearch(query, category) {
+function librarySearch(query) {
     const q = query.trim().toLowerCase();
-    let pool = (category && category !== 'all') ? libraryByCategory(category) : libraryGetAll();
-    if (!q) return pool;
-    return pool.filter(e => e.name.toLowerCase().includes(q));
+    if (!q) return EXERCISE_LIBRARY;
+    return EXERCISE_LIBRARY.filter(e => e.name.toLowerCase().includes(q));
 }

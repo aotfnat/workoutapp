@@ -26,6 +26,7 @@
                 <button class="update-btn" onclick="checkForUpdate()">🔄 Check for App Update</button>
                 <span id="update-status" class="update-status"></span>
             </div>
+            <p id="app-version-label" class="app-version-label"></p>
         </div>
 
         <!-- PLAN -->
@@ -52,22 +53,24 @@
                         <button id="menu-btn" onclick="toggleMenu()" aria-label="Open menu">☰</button>
                         <span>⏱ Elapsed</span>
                     </div>
-                    <div id="lapsed-time" class="hud-time">00:00</div>
-                    <div id="hud-workout-phase" class="hud-phase-label"></div>
-                    <div id="hud-work-total" class="hud-work-label"></div>
+                    <div class="hud-elapsed-row">
+                        <div id="lapsed-time" class="hud-time">00:00</div>
+                        <div class="hud-elapsed-meta">
+                            <div id="hud-workout-phase" class="hud-phase-label"></div>
+                            <div id="hud-work-total" class="hud-work-label"></div>
+                        </div>
+                    </div>
                 </div>
 
-                <!-- Centre cell: landscape combo button (hidden in portrait) -->
-                <div class="hud-cell hud-center">
-                    <button id="hud-combo-btn" onclick="hudComboAction()">–</button>
-                </div>
-
-                <!-- Right cell: Pause/Resume (top-left) + phase label + timer -->
+                <!-- Right cell: Pause/Resume + Skip Rest (top-left) + phase label + timer -->
                 <div class="hud-cell hud-right" onclick="openTimerDrawer()" style="cursor:pointer;">
                     <div class="hud-timer-top-row">
                         <button id="pause-resume-btn" class="pause-resume-btn"
                             onclick="event.stopPropagation(); pauseResumeTimer()"
                             style="display:none;">⏸</button>
+                        <button id="skip-rest-btn" class="pause-resume-btn skip-rest-btn"
+                            onclick="event.stopPropagation(); skipToEndOfRest()"
+                            style="display:none;" title="Skip to end of rest">⏭</button>
                         <div id="timer-phase-label" class="hud-label">⏱ Timer</div>
                     </div>
                     <div id="timer" class="hud-time">--:--</div>
@@ -87,8 +90,10 @@
                 <button class="backup-btn import-btn" onclick="document.getElementById('progress-import-input').click()">📥 Import CSV</button>
             </div>
             <input type="file" id="progress-import-input" accept=".csv" style="display:none" onchange="importProgressCSV(event)">
+            <!-- Two stacked Work/Power charts -->
+            <div id="progress-charts-container"></div>
+            <!-- Session log -->
             <div id="progress-log"></div>
-            <canvas id="progress-chart" width="400" height="250"></canvas>
         </div>
 
         <!-- Settings -->
@@ -121,59 +126,6 @@
                 </label>
                 <p class="settings-hint">Body weight is used to calculate the load on exercises. Height is used to calculate distance traveled per rep for repetitive movements.</p>
                 <button onclick="saveSettings()">💾 Save Settings</button>
-            </div>
-
-            <!-- Custom Exercise Library -->
-            <h3 style="margin:20px 0 8px;font-size:17px;font-weight:700;color:#1c1c1e;">★ Custom Exercise Library</h3>
-            <div class="settings-form" id="custom-library-panel">
-                <p class="settings-hint">Add exercises not in the built-in library. They appear in the library search with a ★ badge and can be deleted from within the search results.</p>
-                <div style="display:flex;flex-direction:column;gap:10px;">
-                    <label class="ex-form-label" style="color:#3a3a3c;">Exercise Name</label>
-                    <input id="cl-name" type="text" placeholder="e.g. Cable Fly" style="width:100%;padding:12px;font-size:15px;border:1px solid #d1d1d6;border-radius:10px;background:#fff;color:#1c1c1e;">
-                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                        <div style="flex:1;min-width:120px;">
-                            <label class="ex-form-label" style="color:#3a3a3c;">Category</label>
-                            <select id="cl-cat" style="width:100%;padding:10px;font-size:14px;border:1px solid #d1d1d6;border-radius:10px;background:#fff;color:#1c1c1e;">
-                                <option value="upper">Upper Body</option>
-                                <option value="lower">Lower Body</option>
-                                <option value="core">Core</option>
-                                <option value="cardio">Cardio</option>
-                                <option value="full">Full Body</option>
-                                <option value="mobility">Mobility</option>
-                                <option value="custom">Other / Custom</option>
-                            </select>
-                        </div>
-                        <div style="flex:1;min-width:120px;">
-                            <label class="ex-form-label" style="color:#3a3a3c;">Type</label>
-                            <select id="cl-type" style="width:100%;padding:10px;font-size:14px;border:1px solid #d1d1d6;border-radius:10px;background:#fff;color:#1c1c1e;">
-                                <option value="isotonic">Isotonic</option>
-                                <option value="isometric">Isometric</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                        <div style="flex:1;min-width:100px;">
-                            <label class="ex-form-label" style="color:#3a3a3c;">Body Weight %</label>
-                            <input id="cl-bwpct" type="number" min="0" max="100" step="1" value="0" placeholder="0–100"
-                                style="width:100%;padding:10px;font-size:14px;border:1px solid #d1d1d6;border-radius:10px;background:#fff;color:#1c1c1e;text-align:center;">
-                        </div>
-                        <div style="flex:1;min-width:100px;">
-                            <label class="ex-form-label" style="color:#3a3a3c;">Height % / rep</label>
-                            <input id="cl-hpct" type="number" min="0" max="100" step="1" placeholder="optional"
-                                style="width:100%;padding:10px;font-size:14px;border:1px solid #d1d1d6;border-radius:10px;background:#fff;color:#1c1c1e;text-align:center;">
-                        </div>
-                        <div style="flex:1;min-width:100px;">
-                            <label class="ex-form-label" style="color:#3a3a3c;">Default Unit</label>
-                            <select id="cl-unit" style="width:100%;padding:10px;font-size:14px;border:1px solid #d1d1d6;border-radius:10px;background:#fff;color:#1c1c1e;">
-                                <option value="reps">Reps</option>
-                                <option value="seconds">Seconds</option>
-                                <option value="meters">Meters</option>
-                            </select>
-                        </div>
-                    </div>
-                    <button onclick="saveCustomLibraryFromSettings()" style="background:#ff9f0a;margin-top:4px;">★ Save to Library</button>
-                </div>
-                <div id="custom-library-list" style="margin-top:12px;"></div>
             </div>
         </div>
     </main>
