@@ -682,10 +682,23 @@ function openExerciseForm(title, ex) {
         <div class="ex-form">
             <div class="ex-form-section">
                 <label class="ex-form-label">Exercise name / library search</label>
-                <input id="ef-name" class="ex-text-input" type="text"
-                    placeholder="Type to search library…"
-                    value="${escHtml(ex.name)}" autocomplete="off"
-                    oninput="exFormLibrarySearch(this.value)">
+                <div class="ex-form-row" style="gap:6px;margin-bottom:6px;">
+                    <input id="ef-name" class="ex-text-input" type="text"
+                        placeholder="Type to search…"
+                        value="${escHtml(ex.name)}" autocomplete="off"
+                        oninput="exFormLibrarySearch(this.value)" style="flex:1;min-width:0;">
+                    <select id="ef-cat-filter" class="ex-form-select" style="flex:0 0 100px;"
+                        onchange="exFormLibrarySearch(document.getElementById('ef-name').value)">
+                        <option value="all">All</option>
+                        <option value="upper">Upper</option>
+                        <option value="lower">Lower</option>
+                        <option value="core">Core</option>
+                        <option value="cardio">Cardio</option>
+                        <option value="full">Full Body</option>
+                        <option value="mobility">Mobility</option>
+                        <option value="custom">Custom ★</option>
+                    </select>
+                </div>
                 <div id="ef-lib-results" class="ex-lib-results"></div>
             </div>
             <div class="ex-form-section">
@@ -806,16 +819,29 @@ function openExerciseForm(title, ex) {
 function exFormLibrarySearch(query) {
     const resultsEl = document.getElementById('ef-lib-results');
     if (!resultsEl) return;
-    const q = query.trim();
-    if (!q) { resultsEl.innerHTML = ''; return; }
-    const matches = (typeof librarySearch === 'function') ? librarySearch(q).slice(0, 5) : [];
-    if (matches.length === 0) { resultsEl.innerHTML = ''; return; }
-    resultsEl.innerHTML = matches.map(m => `
-        <button class="ex-lib-result-btn" onclick="exFormApplyLibraryEntry(${JSON.stringify(m).replace(/"/g, '&quot;')})">
-            <span class="ex-lib-name">${escHtml(m.name)}</span>
-            <span class="ex-lib-meta">${m.category} · BW ${Math.round(m.bodyWeightPct * 100)}%${m.heightPct !== null ? ` · H ${Math.round(m.heightPct * 100)}%` : ''}</span>
-        </button>
-    `).join('');
+    const q   = query.trim();
+    const cat = document.getElementById('ef-cat-filter')?.value || 'all';
+    // Show results when filtering by category even with no query, or when query exists
+    if (!q && cat === 'all') { resultsEl.innerHTML = ''; return; }
+    const matches = (typeof librarySearch === 'function') ? librarySearch(q, cat).slice(0, 8) : [];
+    if (matches.length === 0) {
+        resultsEl.innerHTML = `<p style="color:#636366;font-size:13px;margin:4px 0;">No matches. Fill in the fields manually or <button class="ex-modal-next" style="padding:4px 10px;font-size:13px;" onclick="saveCurrentAsCustom()">Save as Custom ★</button></p>`;
+        return;
+    }
+    resultsEl.innerHTML = matches.map(m => {
+        const customBadge = m.custom ? ' <span style="color:#ff9f0a;font-size:10px;">★ Custom</span>' : '';
+        const deleteBtnHtml = m.custom
+            ? `<button onclick="event.stopPropagation();deleteCustomLibraryEntry('${escHtml(m.name)}')" style="background:#ff453a;color:#fff;font-size:11px;padding:2px 7px;border:none;border-radius:6px;margin:0;cursor:pointer;flex-shrink:0;">✕</button>`
+            : '';
+        return `
+        <div style="display:flex;align-items:center;gap:6px;">
+            <button class="ex-lib-result-btn" style="flex:1;" onclick="exFormApplyLibraryEntry(${JSON.stringify(m).replace(/"/g, '&quot;')})">
+                <span class="ex-lib-name">${escHtml(m.name)}${customBadge}</span>
+                <span class="ex-lib-meta">${m.category} · BW ${Math.round(m.bodyWeightPct * 100)}%${m.heightPct !== null && m.heightPct !== undefined ? ` · H ${Math.round(m.heightPct * 100)}%` : ''}</span>
+            </button>
+            ${deleteBtnHtml}
+        </div>`;
+    }).join('');
 }
 
 function exFormApplyLibraryEntry(entry) {
@@ -835,6 +861,38 @@ function exFormApplyLibraryEntry(entry) {
     exFormBWPreviewUpdate();
     exFormUpdateTargetLabel();
     exFormTypeChanged();
+}
+
+// Save the current form values as a custom library entry
+function saveCurrentAsCustom() {
+    const name = document.getElementById('ef-name')?.value.trim();
+    if (!name) { alert('Enter an exercise name first.'); return; }
+    const typeVal  = document.querySelector('input[name="ef-type"]:checked')?.value || 'isotonic';
+    const bwPct    = Math.min(Math.max((parseFloat(document.getElementById('ef-bwpct')?.value) || 0) / 100, 0), 1);
+    const hPctRaw  = document.getElementById('ef-heightpct')?.value;
+    const heightPct = (hPctRaw !== undefined && hPctRaw !== '') ? (parseFloat(hPctRaw) / 100 || null) : null;
+    const unit     = typeVal === 'isometric' ? 'seconds' : (document.getElementById('ef-unit')?.value || 'reps');
+    const catFilter = document.getElementById('ef-cat-filter')?.value;
+    const category = (catFilter && catFilter !== 'all' && catFilter !== 'custom') ? catFilter : 'custom';
+    const entry = {
+        name, category, type: typeVal,
+        bodyWeightPct: bwPct, heightPct,
+        distanceM: null, unit,
+        notes: 'Custom exercise'
+    };
+    libraryAddCustom(entry);
+    alert(`✅ "${name}" saved to your custom library!`);
+    exFormLibrarySearch(name);
+}
+
+// Delete a custom library entry (called from both Settings and search results)
+function deleteCustomLibraryEntry(name) {
+    if (!confirm(`Remove "${name}" from your custom library?`)) return;
+    if (typeof libraryDeleteCustom === 'function') libraryDeleteCustom(name);
+    renderCustomLibraryList();
+    // Refresh search results if modal is open
+    const resultsEl = document.getElementById('ef-lib-results');
+    if (resultsEl) exFormLibrarySearch(document.getElementById('ef-name')?.value || '');
 }
 
 function exFormUpdateBWPreview() { exFormBWPreviewUpdate(); }
@@ -2449,6 +2507,51 @@ function loadSettings() {
     if (huEl) huEl.value = userSettings.heightUnit || 'in';
     updateSettingsWeightLabel();
     updateSettingsHeightLabel();
+    renderCustomLibraryList();
+}
+
+// Render the list of existing custom exercises in the Settings panel
+function renderCustomLibraryList() {
+    const listEl = document.getElementById('custom-library-list');
+    if (!listEl) return;
+    const custom = (typeof loadCustomExercises === 'function') ? loadCustomExercises() : [];
+    if (custom.length === 0) {
+        listEl.innerHTML = '<p style="font-size:13px;color:#aeaeb2;font-style:italic;">No custom exercises yet.</p>';
+        return;
+    }
+    listEl.innerHTML = `
+        <p style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#8e8e93;margin:0 0 8px;">Your Custom Exercises</p>
+        ${custom.map(e => `
+            <div style="display:flex;align-items:center;justify-content:space-between;background:#f2f2f7;border-radius:10px;padding:10px 12px;margin-bottom:6px;">
+                <div>
+                    <span style="font-size:14px;font-weight:600;color:#1c1c1e;">${escHtml(e.name)}</span>
+                    <span style="font-size:12px;color:#636366;margin-left:6px;">${e.category} · BW ${Math.round((e.bodyWeightPct||0)*100)}%${e.heightPct != null ? ` · H ${Math.round(e.heightPct*100)}%` : ''}</span>
+                </div>
+                <button onclick="deleteCustomLibraryEntry('${escHtml(e.name)}')" style="background:#ff453a;color:#fff;font-size:12px;padding:4px 10px;border:none;border-radius:8px;margin:0;cursor:pointer;">✕</button>
+            </div>
+        `).join('')}
+    `;
+}
+
+// Save a custom exercise from the Settings panel form
+function saveCustomLibraryFromSettings() {
+    const name = document.getElementById('cl-name')?.value.trim();
+    if (!name) { alert('Enter an exercise name.'); return; }
+    const cat      = document.getElementById('cl-cat')?.value   || 'custom';
+    const type     = document.getElementById('cl-type')?.value  || 'isotonic';
+    const bwRaw    = parseFloat(document.getElementById('cl-bwpct')?.value);
+    const hRaw     = document.getElementById('cl-hpct')?.value;
+    const unit     = document.getElementById('cl-unit')?.value  || 'reps';
+    const bwPct    = isNaN(bwRaw) ? 0 : Math.min(Math.max(bwRaw / 100, 0), 1);
+    const hPct     = (hRaw !== '' && hRaw !== undefined && !isNaN(parseFloat(hRaw))) ? parseFloat(hRaw) / 100 : null;
+
+    libraryAddCustom({ name, category: cat, type, bodyWeightPct: bwPct, heightPct: hPct, distanceM: null, unit, notes: 'Custom exercise' });
+    // Clear form
+    document.getElementById('cl-name').value  = '';
+    document.getElementById('cl-bwpct').value = '0';
+    document.getElementById('cl-hpct').value  = '';
+    alert(`✅ "${name}" added to your custom library!`);
+    renderCustomLibraryList();
 }
 
 function updateSettingsWeightLabel() {
@@ -2470,11 +2573,41 @@ function saveSettings() {
     const heightUnit = (document.getElementById('height-unit')?.value) || 'in';
     if (weightVal && weightVal <= 0) { alert('Please enter a positive body weight.'); return; }
     if (heightVal && heightVal <= 0) { alert('Please enter a positive height.'); return; }
-    userSettings.weight     = weightVal || '';
-    userSettings.height     = heightVal || '';
+
+    // Auto-convert the entered values if the unit changed, so the number stays correct
+    // (e.g. user has 180 lb stored, switches dropdown to kg → convert to ~81.6 automatically)
+    const prevWeightUnit = userSettings.weightUnit;
+    const prevHeightUnit = userSettings.heightUnit;
+
+    let newWeight = weightVal || '';
+    let newHeight = heightVal || '';
+
+    if (newWeight !== '' && weightUnit !== prevWeightUnit) {
+        if (weightUnit === 'kg' && prevWeightUnit === 'lb') {
+            newWeight = +(newWeight * 0.453592).toFixed(1);
+        } else if (weightUnit === 'lb' && prevWeightUnit === 'kg') {
+            newWeight = +(newWeight * 2.20462).toFixed(1);
+        }
+    }
+
+    if (newHeight !== '' && heightUnit !== prevHeightUnit) {
+        if (heightUnit === 'cm' && prevHeightUnit === 'in') {
+            newHeight = +(newHeight * 2.54).toFixed(1);
+        } else if (heightUnit === 'in' && prevHeightUnit === 'cm') {
+            newHeight = +(newHeight / 2.54).toFixed(1);
+        }
+    }
+
+    userSettings.weight     = newWeight;
+    userSettings.height     = newHeight;
     userSettings.weightUnit = weightUnit;
     userSettings.heightUnit = heightUnit;
     localStorage.setItem('userSettings', JSON.stringify(userSettings));
+
+    // Update input fields to show converted values
+    if (newWeight !== '') document.getElementById('user-weight').value = newWeight;
+    if (newHeight !== '') document.getElementById('user-height').value = newHeight;
+
     if (workoutInProgress) renderExercise();
     loadProgress();
     alert('Settings saved!');

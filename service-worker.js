@@ -1,5 +1,5 @@
 // service-worker.js
-const CACHE_NAME = 'fitness-app-v9.1.15';
+const CACHE_NAME = 'fitness-app-v9.2.0';
 
 const BASE = self.location.pathname.replace(/\/service-worker\.js$/, '');
 const urlsToCache = [
@@ -7,6 +7,7 @@ const urlsToCache = [
     BASE + '/index.html',
     BASE + '/styles.css',
     BASE + '/app.js',
+    BASE + '/exercise-library.js',
     'https://cdn.jsdelivr.net/npm/chart.js'
 ];
 
