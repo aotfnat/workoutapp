@@ -727,5 +727,21 @@ function librarySearch(query, category) {
     const q = query.trim().toLowerCase();
     let pool = (category && category !== 'all') ? libraryByCategory(category) : libraryGetAll();
     if (!q) return pool;
-    return pool.filter(e => e.name.toLowerCase().includes(q));
+
+    const matches = pool.filter(e => e.name.toLowerCase().includes(q));
+
+    // Rank: 1 = exact match, 2 = name starts with query, 3 = a word starts with query, 4 = contains anywhere
+    function rank(e) {
+        const name = e.name.toLowerCase();
+        if (name === q) return 1;
+        if (name.startsWith(q)) return 2;
+        if (name.split(/[\s\-]+/).some(word => word.startsWith(q))) return 3;
+        return 4;
+    }
+
+    return matches.sort((a, b) => {
+        const rd = rank(a) - rank(b);
+        if (rd !== 0) return rd;
+        return a.name.localeCompare(b.name);
+    });
 }

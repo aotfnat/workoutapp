@@ -2300,8 +2300,7 @@ function renderProgressCharts() {
     const workoutNames  = getWorkoutNames();
     const exerciseNames = getWorkExerciseNames();
 
-    // Default selections
-    const lastWorkout  = workoutNames[workoutNames.length - 1]  || '';
+    // Default selections — workout chart defaults to "Total", exercise chart to first exercise of last workout
     const lastExName   = (() => {
         if (progressLogs.length === 0) return '';
         const lastLog = progressLogs[progressLogs.length - 1];
@@ -2309,7 +2308,7 @@ function renderProgressCharts() {
         return firstWorkEx ? firstWorkEx.name : (exerciseNames[0] || '');
     })();
 
-    const woSel  = document.getElementById('prog-workout-select')?.value  || lastWorkout;
+    const woSel  = document.getElementById('prog-workout-select')?.value  || '__total__';
     const exSel  = document.getElementById('prog-exercise-select')?.value || lastExName;
 
     container.innerHTML = `
@@ -2317,8 +2316,9 @@ function renderProgressCharts() {
             <div class="prog-chart-header">
                 <span class="prog-chart-title">📊 Workout: Work &amp; Power over Time</span>
                 <select id="prog-workout-select" class="prog-select" onchange="renderProgressCharts()">
+                    <option value="__total__" ${woSel === '__total__' ? 'selected' : ''}>All Workouts (Total)</option>
                     ${workoutNames.map(n => `<option value="${escHtml(n)}" ${n === woSel ? 'selected' : ''}>${escHtml(n)}</option>`).join('')}
-                    ${workoutNames.length === 0 ? '<option>No workouts logged</option>' : ''}
+                    ${workoutNames.length === 0 ? '<option disabled>No workouts logged</option>' : ''}
                 </select>
             </div>
             <div class="prog-chart-wrap">
@@ -2347,16 +2347,26 @@ function renderWorkoutChart(workoutName) {
     const canvas = document.getElementById('chart-workout');
     if (!canvas) return;
 
-    const filtered = progressLogs.filter(log =>
-        (log.workoutName || log.day || '') === workoutName &&
-        log.workoutTotalWork != null
-    );
-
-    const labels = filtered.map(log => new Date(log.date).toLocaleDateString());
-    const workData  = filtered.map(log => +(log.workoutTotalWork || 0).toFixed(1));
-    const powerData = filtered.map(log => log.workoutTotalPower != null ? +(log.workoutTotalPower).toFixed(2) : null);
-
     const unit = isMetric() ? 'J' : 'ft-lbf';
+    let labels, workData, powerData;
+
+    if (workoutName === '__total__') {
+        // All workouts chronologically — each log entry is one data point
+        const filtered = progressLogs.filter(log => log.workoutTotalWork != null);
+        labels    = filtered.map(log =>
+            `${new Date(log.date).toLocaleDateString()} – ${escHtml(log.workoutName || '')}`
+        );
+        workData  = filtered.map(log => +(log.workoutTotalWork || 0).toFixed(1));
+        powerData = filtered.map(log => log.workoutTotalPower != null ? +(log.workoutTotalPower).toFixed(2) : null);
+    } else {
+        const filtered = progressLogs.filter(log =>
+            (log.workoutName || log.day || '') === workoutName &&
+            log.workoutTotalWork != null
+        );
+        labels    = filtered.map(log => new Date(log.date).toLocaleDateString());
+        workData  = filtered.map(log => +(log.workoutTotalWork || 0).toFixed(1));
+        powerData = filtered.map(log => log.workoutTotalPower != null ? +(log.workoutTotalPower).toFixed(2) : null);
+    }
 
     if (chartWorkout) chartWorkout.destroy();
     chartWorkout = new Chart(canvas.getContext('2d'), {
