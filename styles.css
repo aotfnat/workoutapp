@@ -1235,6 +1235,7 @@ body:has(#workout-section.active) #floating-menu-btn {
         gap: 10px;
         max-height: 90dvh;
         overflow-y: auto;
+        overflow-x: hidden;
     }
     .ex-choice-btn { padding: 11px 6px; font-size: 15px; }
     .ex-modal-title { font-size: 15px; }
@@ -1275,6 +1276,11 @@ body:has(#workout-section.active) #floating-menu-btn {
         font-size: 15px;
     }
     #menu-drawer-handle { margin-bottom: 10px; }
+
+    /* Plan tab: keep workout cards full-width, single column instead of auto-fit 3-up */
+    #weekly-plan {
+        grid-template-columns: 1fr;
+    }
 
 }
 
@@ -1572,9 +1578,16 @@ body:has(#workout-section.active) #floating-menu-btn {
 @media (orientation: landscape) and (max-height: 500px) {
     .ex-form {
         max-height: 55dvh;
+        overflow-x: hidden;
     }
     .ex-form-section {
         padding: 8px 0;
+    }
+    .ex-form-row {
+        gap: 4px 6px;
+    }
+    .ex-lib-results {
+        max-height: 110px;
     }
 }
 
