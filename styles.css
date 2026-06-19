@@ -53,6 +53,14 @@ body {
     margin-bottom: 16px;
 }
 
+/* Landscape: force single column regardless of available width or viewport height —
+   auto-fit would otherwise pack 2-3 narrow columns on a rotated iPhone */
+@media (orientation: landscape) {
+    #weekly-plan {
+        grid-template-columns: 1fr;
+    }
+}
+
 .day {
     background: #fff;
     padding: 12px;
@@ -1276,11 +1284,6 @@ body:has(#workout-section.active) #floating-menu-btn {
         font-size: 15px;
     }
     #menu-drawer-handle { margin-bottom: 10px; }
-
-    /* Plan tab: keep workout cards full-width, single column instead of auto-fit 3-up */
-    #weekly-plan {
-        grid-template-columns: 1fr;
-    }
 
 }
 
