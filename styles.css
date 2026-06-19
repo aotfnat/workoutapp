@@ -1101,6 +1101,9 @@ body:has(#workout-section.active) #floating-menu-btn {
     top: 50%;
     transform: translate(-50%, -50%) scale(0.92);
     width: min(360px, 92vw);
+    max-width: 92vw;
+    box-sizing: border-box;
+    overflow-x: hidden;
     background: #1c1c1e;
     border-radius: 20px;
     padding: 24px 20px 16px;
@@ -1396,8 +1399,12 @@ body:has(#workout-section.active) #floating-menu-btn {
     display: flex;
     flex-direction: column;
     gap: 0;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
     max-height: 60dvh;
     overflow-y: auto;
+    overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
     padding-right: 2px; /* scrollbar gap */
 }
@@ -1405,6 +1412,7 @@ body:has(#workout-section.active) #floating-menu-btn {
 .ex-form-section {
     padding: 12px 0;
     border-bottom: 1px solid #2c2c2e;
+    max-width: 100%;
 }
 .ex-form-section:last-child { border-bottom: none; }
 
@@ -1429,7 +1437,9 @@ body:has(#workout-section.active) #floating-menu-btn {
 .ex-form-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    flex-wrap: wrap;
+    gap: 6px 8px;
+    max-width: 100%;
 }
 
 .ex-form-unit {
@@ -1491,6 +1501,9 @@ body:has(#workout-section.active) #floating-menu-btn {
     font-weight: 600;
     color: #30d158;
     white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* Library search results */
@@ -1501,6 +1514,10 @@ body:has(#workout-section.active) #floating-menu-btn {
     gap: 5px;
     max-height: 140px;
     overflow-y: auto;
+    overflow-x: hidden;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
 .ex-lib-result-btn {
@@ -1516,6 +1533,8 @@ body:has(#workout-section.active) #floating-menu-btn {
     cursor: pointer;
     text-align: left;
     width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
     -webkit-tap-highlight-color: transparent;
 }
 .ex-lib-result-btn:active { background: #3a3a3c; }
@@ -1524,11 +1543,15 @@ body:has(#workout-section.active) #floating-menu-btn {
     font-size: 15px;
     font-weight: 600;
     color: #fff;
+    max-width: 100%;
+    overflow-wrap: break-word;
 }
 
 .ex-lib-meta {
     font-size: 12px;
     color: #8e8e93;
+    max-width: 100%;
+    overflow-wrap: break-word;
 }
 
 /* ── Phase 2: Workout tab — phase badge ─────────────────────────── */
