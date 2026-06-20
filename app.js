@@ -439,6 +439,7 @@ function loadPlan() {
 
     initDragAndDrop();
     initSwipeToDelete();
+    initExerciseDragAndDrop();
 }
 
 // Render one phase section (Warmup / Work / Cooldown) inside a workout card
@@ -457,7 +458,7 @@ function renderPhaseSection(workout, wIdx, phase, label) {
                 <span class="phase-label">${label}</span>
                 <button class="phase-add-btn" onclick="addExercise(${wIdx}, '${phase}')">＋ Add</button>
             </div>
-            <div class="phase-ex-list" id="phase-${wIdx}-${phase}">
+            <div class="phase-ex-list" id="phase-${wIdx}-${phase}" data-widx="${wIdx}" data-phase="${phase}">
                 ${exRows || `<p class="phase-empty">No exercises yet</p>`}
             </div>
         </div>
@@ -493,8 +494,10 @@ function renderExerciseRow(ex, wIdx, eIdx) {
     const restText = `Set rest: ${ex.setRestSec ?? 60}s · Ex rest: ${ex.exerciseRestSec ?? 90}s`;
 
     return `
-        <div class="plan-ex-row" id="plan-ex-${wIdx}-${eIdx}">
+        <div class="plan-ex-row" id="plan-ex-${wIdx}-${eIdx}" draggable="true"
+            data-widx="${wIdx}" data-eidx="${eIdx}" data-phase="${ex.phase || 'work'}">
             <div class="plan-ex-main">
+                <span class="ex-drag-handle" title="Drag to reorder">⠿</span>
                 ${typeTag}
                 <span class="plan-ex-name">${escHtml(ex.name)}</span>
                 <button class="icon-btn plan-ex-edit-btn" onclick="editExercise(${wIdx}, ${eIdx})" title="Edit">✏️</button>
@@ -1122,6 +1125,130 @@ function onTouchEnd() {
     document.querySelectorAll('.workout-card').forEach(c => c.classList.remove('dragging','drag-over'));
     touchDragCard = null; dragSrcIndex = null;
     loadPlan();
+}
+
+// ── Exercise reorder (drag-and-drop within a phase section) ──────
+// Exercises live in a single flat array per workout (workout.exercises),
+// with `phase` marking which section they belong to. Each rendered row
+// carries its TRUE index into that flat array (data-eidx), so reordering
+// just needs to remove from the source true-index and reinsert at the
+// target true-index — the array itself defines display + export + workout
+// order, so no separate "order" field is needed.
+let exDragSrcWIdx  = null;
+let exDragSrcEIdx  = null;
+let exDragSrcPhase = null;
+
+function initExerciseDragAndDrop() {
+    document.querySelectorAll('.plan-ex-row').forEach(row => {
+        row.addEventListener('dragstart', onExDragStart);
+        row.addEventListener('dragover',  onExDragOver);
+        row.addEventListener('drop',      onExDrop);
+        row.addEventListener('dragend',   onExDragEnd);
+        const handle = row.querySelector('.ex-drag-handle');
+        if (handle) handle.addEventListener('touchstart', onExTouchStart, { passive: true });
+    });
+}
+
+// Reorders a workout's exercises array: moves the exercise at fromEIdx to
+// sit at the position currently occupied by toEIdx, WITHIN the same phase.
+// Both indices are true indices into workout.exercises.
+function reorderExercise(wIdx, fromEIdx, toEIdx, phase) {
+    const exercises = workoutPlan[wIdx]?.exercises;
+    if (!exercises) return;
+    if (fromEIdx === toEIdx) return;
+    const moving = exercises[fromEIdx];
+    if (!moving || (moving.phase || 'work') !== phase) return;
+    const target = exercises[toEIdx];
+    if (!target || (target.phase || 'work') !== phase) return;
+
+    exercises.splice(fromEIdx, 1);
+    // After removing the source, the target's index shifts down by one
+    // if it was after the source.
+    const adjustedToIdx = fromEIdx < toEIdx ? toEIdx - 1 : toEIdx;
+    exercises.splice(adjustedToIdx, 0, moving);
+
+    savePlan();
+    loadPlan();
+}
+
+function onExDragStart(e) {
+    e.stopPropagation(); // don't trigger the workout-card drag
+    exDragSrcWIdx  = parseInt(this.dataset.widx);
+    exDragSrcEIdx  = parseInt(this.dataset.eidx);
+    exDragSrcPhase = this.dataset.phase;
+    this.classList.add('ex-dragging');
+    e.dataTransfer.effectAllowed = 'move';
+}
+function onExDragOver(e) {
+    // Only allow drop within the same workout + phase
+    if (parseInt(this.dataset.widx) !== exDragSrcWIdx || this.dataset.phase !== exDragSrcPhase) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    document.querySelectorAll('.plan-ex-row').forEach(r => r.classList.remove('ex-drag-over'));
+    this.classList.add('ex-drag-over');
+}
+function onExDrop(e) {
+    e.stopPropagation();
+    e.preventDefault();
+    const targetWIdx  = parseInt(this.dataset.widx);
+    const targetEIdx  = parseInt(this.dataset.eidx);
+    const targetPhase = this.dataset.phase;
+    if (exDragSrcWIdx === null || targetWIdx !== exDragSrcWIdx || targetPhase !== exDragSrcPhase) return;
+    reorderExercise(targetWIdx, exDragSrcEIdx, targetEIdx, targetPhase);
+}
+function onExDragEnd() {
+    document.querySelectorAll('.plan-ex-row').forEach(r => r.classList.remove('ex-dragging', 'ex-drag-over'));
+    exDragSrcWIdx = null; exDragSrcEIdx = null; exDragSrcPhase = null;
+}
+
+let exTouchDragRow = null, exTouchClone = null, exTouchOffsetY = 0;
+
+function onExTouchStart(e) {
+    e.stopPropagation();
+    const handle = e.currentTarget;
+    exTouchDragRow = handle.closest('.plan-ex-row');
+    exDragSrcWIdx  = parseInt(exTouchDragRow.dataset.widx);
+    exDragSrcEIdx  = parseInt(exTouchDragRow.dataset.eidx);
+    exDragSrcPhase = exTouchDragRow.dataset.phase;
+    const rect = exTouchDragRow.getBoundingClientRect();
+    exTouchOffsetY = e.touches[0].clientY - rect.top;
+    exTouchClone = exTouchDragRow.cloneNode(true);
+    exTouchClone.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;opacity:0.9;z-index:9999;pointer-events:none;border:2px solid #007aff;border-radius:10px;background:#fff;`;
+    document.body.appendChild(exTouchClone);
+    exTouchDragRow.classList.add('ex-dragging');
+    document.addEventListener('touchmove', onExTouchMove, { passive: false });
+    document.addEventListener('touchend',  onExTouchEnd);
+}
+function onExTouchMove(e) {
+    e.preventDefault();
+    exTouchClone.style.top = (e.touches[0].clientY - exTouchOffsetY) + 'px';
+    exTouchClone.style.display = 'none';
+    const el = document.elementFromPoint(e.touches[0].clientX, e.touches[0].clientY);
+    exTouchClone.style.display = '';
+    const hovered = el?.closest('.plan-ex-row');
+    document.querySelectorAll('.plan-ex-row').forEach(r => r.classList.remove('ex-drag-over'));
+    if (hovered && hovered !== exTouchDragRow
+        && parseInt(hovered.dataset.widx) === exDragSrcWIdx
+        && hovered.dataset.phase === exDragSrcPhase) {
+        hovered.classList.add('ex-drag-over');
+    }
+}
+function onExTouchEnd() {
+    document.removeEventListener('touchmove', onExTouchMove);
+    document.removeEventListener('touchend',  onExTouchEnd);
+    if (exTouchClone) { exTouchClone.remove(); exTouchClone = null; }
+    const overRow = document.querySelector('.plan-ex-row.ex-drag-over');
+    if (overRow) {
+        const targetWIdx  = parseInt(overRow.dataset.widx);
+        const targetEIdx  = parseInt(overRow.dataset.eidx);
+        const targetPhase = overRow.dataset.phase;
+        if (targetWIdx === exDragSrcWIdx && targetPhase === exDragSrcPhase) {
+            reorderExercise(targetWIdx, exDragSrcEIdx, targetEIdx, targetPhase);
+        }
+    }
+    document.querySelectorAll('.plan-ex-row').forEach(r => r.classList.remove('ex-dragging', 'ex-drag-over'));
+    exTouchDragRow = null; exDragSrcWIdx = null; exDragSrcEIdx = null; exDragSrcPhase = null;
 }
 
 // ── Previous accomplishment lookup ───────────────────────────────

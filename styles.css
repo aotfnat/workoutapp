@@ -1346,8 +1346,25 @@ body:has(#workout-section.active) #floating-menu-btn {
     border-radius: 10px;
     padding: 10px 12px;
     margin-bottom: 8px;
+    transition: box-shadow 0.15s, opacity 0.15s;
 }
 .plan-ex-row:last-child { margin-bottom: 0; }
+
+/* Exercise reorder drag states */
+.plan-ex-row.ex-dragging  { opacity: 0.4; }
+.plan-ex-row.ex-drag-over { box-shadow: 0 0 0 2px #007aff; }
+
+.ex-drag-handle {
+    font-size: 16px;
+    color: #aeaeb2;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    padding: 2px 4px 2px 0;
+    line-height: 1;
+    flex-shrink: 0;
+}
+.ex-drag-handle:active { cursor: grabbing; }
 
 .plan-ex-main {
     display: flex;
