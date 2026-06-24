@@ -738,7 +738,7 @@ function openExerciseForm(title, ex) {
                     <input id="ef-bwpct" class="ex-num-input" type="number"
                         min="0" max="100" step="1"
                         value="${Math.round((ex.bodyWeightPct ?? 0) * 100)}"
-                        oninput="exFormUpdateBWPreview()">
+                        oninput="exFormUpdateBWPreview()" onfocus="this.select()">
                     <span class="ex-form-unit">%</span>
                     <span id="ef-bw-preview" class="ex-bw-preview">= ${bwPreview}</span>
                 </div>
@@ -750,7 +750,8 @@ function openExerciseForm(title, ex) {
                 <div class="ex-form-row">
                     <input id="ef-heightpct" class="ex-num-input" type="number"
                         min="0" max="100" step="1"
-                        value="${ex.heightPct !== null && ex.heightPct !== undefined ? Math.round(ex.heightPct * 100) : ''}">
+                        value="${ex.heightPct !== null && ex.heightPct !== undefined ? Math.round(ex.heightPct * 100) : ''}"
+                        onfocus="this.select()">
                     <span class="ex-form-unit">%</span>
                 </div>
             </div>
@@ -761,7 +762,8 @@ function openExerciseForm(title, ex) {
                 <div class="ex-form-row">
                     <input id="ef-distance" class="ex-num-input" type="number"
                         min="0" step="1"
-                        value="${ex.distanceM ?? ''}">
+                        value="${ex.distanceM ?? ''}"
+                        onfocus="this.select()">
                     <span class="ex-form-unit">m</span>
                 </div>
             </div>
@@ -775,7 +777,7 @@ function openExerciseForm(title, ex) {
                 </label>
                 <div class="ex-form-row">
                     <input id="ef-target" class="ex-num-input" type="number"
-                        min="1" step="1" value="${ex.target ?? 10}">
+                        min="1" step="1" value="${ex.target ?? 10}" onfocus="this.select()">
                     <span id="ef-target-unit" class="ex-form-unit"></span>
                 </div>
             </div>
@@ -792,8 +794,11 @@ function openExerciseForm(title, ex) {
             </div>
             <div class="ex-form-section">
                 <label class="ex-form-label" for="ef-sets">Number of sets</label>
-                <input id="ef-sets" class="ex-num-input" type="number"
-                    min="1" step="1" value="${ex.sets ?? 3}">
+                <div class="ex-form-row">
+                    <input id="ef-sets" class="ex-num-input" type="number"
+                        min="1" step="1" value="${ex.sets ?? 3}" onfocus="this.select()">
+                    <span class="ex-form-unit">sets</span>
+                </div>
             </div>
             <div class="ex-form-section">
                 <label class="ex-form-label" for="ef-ex-rest">
@@ -801,7 +806,7 @@ function openExerciseForm(title, ex) {
                 </label>
                 <div class="ex-form-row">
                     <input id="ef-ex-rest" class="ex-num-input" type="number"
-                        min="0" step="5" value="${ex.exerciseRestSec ?? 90}">
+                        min="0" step="5" value="${ex.exerciseRestSec ?? 90}" onfocus="this.select()">
                     <span class="ex-form-unit">s</span>
                 </div>
             </div>
@@ -811,7 +816,7 @@ function openExerciseForm(title, ex) {
                 </label>
                 <div class="ex-form-row">
                     <input id="ef-set-rest" class="ex-num-input" type="number"
-                        min="0" step="5" value="${ex.setRestSec ?? 60}">
+                        min="0" step="5" value="${ex.setRestSec ?? 60}" onfocus="this.select()">
                     <span class="ex-form-unit">s</span>
                 </div>
             </div>
@@ -1850,7 +1855,7 @@ function renderExercise() {
                <p class="timed-input-label">⏱ Set complete! Log your ${ex.timedInput === 'distance' ? 'distance' : 'reps'}:</p>
                <label>${timedInputLabel}:
                    <input type="number" id="timed-user-input" class="timed-user-input" step="1" min="0"
-                       value="${ex.userInputs[setIdx] || ''}" placeholder="0">
+                       value="${ex.userInputs[setIdx] || ''}" placeholder="0" onfocus="this.select()">
                </label>
            </div>`
         : '';
@@ -2223,16 +2228,7 @@ function activateWaitingSW(sw) {
 let _audioCtx = null;
 function getAudioCtx() {
     if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    // iOS suspends the AudioContext when another app takes the audio session.
-    // Resume it immediately so sounds work after switching back from e.g. a podcast app.
-    if (_audioCtx.state === 'suspended') _audioCtx.resume();
     return _audioCtx;
-}
-
-// Resume the AudioContext whenever the app returns to the foreground.
-// iOS does not do this automatically, so sounds would stay silent without this.
-function resumeAudioContext() {
-    if (_audioCtx && _audioCtx.state === 'suspended') _audioCtx.resume();
 }
 
 function playWhistle() {
@@ -2539,20 +2535,20 @@ function renderWorkoutChart(workoutName) {
     const unit = isMetric() ? 'J' : 'ft-lbf';
     let labels, workData, powerData;
 
-    let workoutNamesForTooltip = [];
     if (workoutName === '__total__') {
         // All workouts chronologically — each log entry is one data point
         const filtered = progressLogs.filter(log => log.workoutTotalWork != null);
-        labels    = filtered.map(log => fmtDate(log.date));
+        labels    = filtered.map(log =>
+            `${new Date(log.date).toLocaleDateString()} – ${escHtml(log.workoutName || '')}`
+        );
         workData  = filtered.map(log => +(log.workoutTotalWork || 0).toFixed(1));
         powerData = filtered.map(log => log.workoutTotalPower != null ? +(log.workoutTotalPower).toFixed(2) : null);
-        workoutNamesForTooltip = filtered.map(log => log.workoutName || log.day || '');
     } else {
         const filtered = progressLogs.filter(log =>
             (log.workoutName || log.day || '') === workoutName &&
             log.workoutTotalWork != null
         );
-        labels    = filtered.map(log => fmtDate(log.date));
+        labels    = filtered.map(log => new Date(log.date).toLocaleDateString());
         workData  = filtered.map(log => +(log.workoutTotalWork || 0).toFixed(1));
         powerData = filtered.map(log => log.workoutTotalPower != null ? +(log.workoutTotalPower).toFixed(2) : null);
     }
@@ -2593,19 +2589,11 @@ function renderWorkoutChart(workoutName) {
             plugins: {
                 legend: { labels: { color: '#1c1c1e', font: { size: 12 } } },
                 tooltip: { callbacks: {
-                    title: ctx => {
-                        const idx = ctx[0]?.dataIndex;
-                        const dateLabel = ctx[0]?.label || '';
-                        if (workoutNamesForTooltip.length && idx != null) {
-                            return `${dateLabel} \u2014 ${workoutNamesForTooltip[idx]}`;
-                        }
-                        return dateLabel;
-                    },
-                    label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(1) : '\u2014'}`
+                    label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(1) : '—'}`
                 }}
             },
             scales: {
-                x:      { ticks: { color: '#636366', font: { size: 10 }, maxRotation: 45 }, grid: { color: '#e5e5ea' } },
+                x:      { ticks: { color: '#636366', maxRotation: 45 }, grid: { color: '#e5e5ea' } },
                 yWork:  { type: 'linear', position: 'left',  beginAtZero: true, ticks: { color: '#30d158' }, grid: { color: '#e5e5ea' }, title: { display: true, text: `Work (${unit})`, color: '#30d158' } },
                 yPower: { type: 'linear', position: 'right', beginAtZero: true, ticks: { color: '#ff9f0a' }, grid: { drawOnChartArea: false }, title: { display: true, text: `Power (${unit}/s)`, color: '#ff9f0a' } }
             }
@@ -2624,7 +2612,7 @@ function renderExerciseChart(exerciseName) {
             e.name === exerciseName && (e.phase || 'work') === 'work'
         );
         if (!ex) return;
-        points.push({ date: fmtDate(log.date), ex });
+        points.push({ date: new Date(log.date).toLocaleDateString(), ex });
     });
 
     const labels    = points.map(p => p.date);
@@ -2659,7 +2647,7 @@ function renderExerciseChart(exerciseName) {
     ];
 
     const scales = {
-        x:     { ticks: { color: '#636366', font: { size: 10 }, maxRotation: 45 }, grid: { color: '#e5e5ea' } },
+        x:     { ticks: { color: '#636366', maxRotation: 45 }, grid: { color: '#e5e5ea' } },
         yWork: { type: 'linear', position: 'left', beginAtZero: true, ticks: { color: '#0a84ff' }, grid: { color: '#e5e5ea' }, title: { display: true, text: workLabel, color: '#0a84ff' } }
     };
 
@@ -2703,13 +2691,6 @@ function getRandomColor() {
 function formatTime(s) {
     const sec = Math.max(0, Math.round(s));
     return `${String(Math.floor(sec/60)).padStart(2,'0')}:${String(sec%60).padStart(2,'0')}`;
-}
-
-// Format a date string as M/D/YY (e.g. 6/23/26)
-function fmtDate(isoStr) {
-    const d = new Date(isoStr);
-    const yy = String(d.getFullYear()).slice(-2);
-    return `${d.getMonth() + 1}/${d.getDate()}/${yy}`;
 }
 
 // ── Settings TAB ─────────────────────────────────────────────────
@@ -2834,8 +2815,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
-            // Resume Web Audio API context if iOS suspended it while another app played audio
-            resumeAudioContext();
             // Re-check auto-complete each time app comes to foreground
             const raw = localStorage.getItem('inProgressWorkout');
             if (raw && !workoutInProgress) {
