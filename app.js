@@ -2303,7 +2303,7 @@ function updateSoundUI() {
 }
 
 // ── PROGRESS CSV BACKUP & RESTORE ────────────────────────────────
-const PROGRESS_CSV_HEADER = 'date,workout_name,duration_seconds,weight_unit,height_unit,workout_total_work,workout_total_power,exercise_name,type,phase,sets,target,unit,bodyWeightPct,heightPct,weights,timedInput,total_work,total_power,total_tension';
+const PROGRESS_CSV_HEADER = 'date,workout_name,duration_seconds,weight_unit,height_unit,workout_total_work,workout_total_power,exercise_name,type,phase,sets,target,unit,bodyWeightPct,heightPct,weights,timedInput,user_inputs,total_work,total_power,total_tension';
 
 function exportProgressCSV() {
     if (progressLogs.length === 0) {
@@ -2320,10 +2320,11 @@ function exportProgressCSV() {
         const wkWork  = csvEscape(log.workoutTotalWork  ?? '');
         const wkPower = csvEscape(log.workoutTotalPower ?? '');
         if (!log.exercises || log.exercises.length === 0) {
-            rows.push([date, woName, dur, wu, hu, wkWork, wkPower, '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
+            rows.push([date, woName, dur, wu, hu, wkWork, wkPower, '', '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
         } else {
             log.exercises.forEach(ex => {
-                const weights = Array.isArray(ex.weights) ? ex.weights.join('|') : '';
+                const weights    = Array.isArray(ex.weights)    ? ex.weights.join('|')    : '';
+                const userInputs = Array.isArray(ex.userInputs) ? ex.userInputs.join('|') : '';
                 rows.push([
                     date, woName, dur, wu, hu, wkWork, wkPower,
                     csvEscape(ex.name),
@@ -2336,6 +2337,7 @@ function exportProgressCSV() {
                     csvEscape(ex.heightPct     ?? ''),
                     csvEscape(weights),
                     csvEscape(ex.timedInput    || 'reps'),
+                    csvEscape(userInputs),
                     csvEscape(ex.totalWork     ?? ''),
                     csvEscape(ex.totalPower    ?? ''),
                     csvEscape(ex.totalTension  ?? '')
@@ -2363,8 +2365,9 @@ function importProgressCSV(event) {
                 alert("Import failed: unexpected header.\nExpected: " + PROGRESS_CSV_HEADER);
                 return;
             }
-            // Detect whether this is old format (14 cols) or new format (20 cols)
-            const isNewFormat = header.includes('workout_total_work');
+            // Detect format: old (14 cols), new (20 cols), or latest (21 cols with user_inputs)
+            const isNewFormat    = header.includes('workout_total_work');
+            const hasUserInputs  = header.includes('user_inputs');
             const logMap = {}, logOrder = [];
             lines.slice(1).forEach(line => {
                 const cols = parseCSVLine(line);
@@ -2392,6 +2395,8 @@ function importProgressCSV(event) {
                 const weightsRaw    = cols[ci++]?.trim() || '';
                 const weights       = weightsRaw ? weightsRaw.split('|').map(Number) : [];
                 const timedInput    = cols[ci++]?.trim() || 'reps';
+                const userInputsRaw = hasUserInputs ? (cols[ci++]?.trim() || '') : '';
+                const userInputs    = userInputsRaw ? userInputsRaw.split('|').map(Number) : [];
                 let totalWork = null, totalPower = null, totalTension = null;
                 if (isNewFormat) {
                     const tw = cols[ci++]?.trim(); totalWork    = tw !== '' ? parseFloat(tw) : null;
@@ -2408,7 +2413,7 @@ function importProgressCSV(event) {
                     logMap[key].exercises.push({
                         name: exName, type, phase,
                         bodyWeightPct, heightPct,
-                        sets, target, unit, timedInput, weights,
+                        sets, target, unit, timedInput, weights, userInputs,
                         totalWork, totalPower, totalTension,
                         isIsometric: type === 'isometric'
                     });
