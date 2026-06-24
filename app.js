@@ -491,7 +491,8 @@ function renderExerciseRow(ex, wIdx, eIdx) {
         targetText = `${ex.target}min, log ${timedLabel} × ${ex.sets} sets`;
     }
 
-    const restText = `Set rest: ${ex.setRestSec ?? 60}s · Ex rest: ${ex.exerciseRestSec ?? 90}s`;
+    const autoSeqText = (ex.type === 'isometric' && ex.autoSequence) ? ' · ⚡ Auto-seq' : '';
+    const restText = `Ex rest: ${ex.exerciseRestSec ?? 90}s${autoSeqText} · Set rest: ${ex.setRestSec ?? 60}s`;
 
     return `
         <div class="plan-ex-row" id="plan-ex-${wIdx}-${eIdx}" draggable="true"
@@ -512,6 +513,7 @@ function renderExerciseRow(ex, wIdx, eIdx) {
 // ── Swipe-to-delete workout cards ────────────────────────────────
 function initSwipeToDelete() {
     document.querySelectorAll('.workout-card').forEach(card => {
+        const wrapper = card.closest('.swipe-wrapper');
         let startX = 0, startY = 0, currentX = 0;
         let swiping = false;
         const threshold = 80;
@@ -533,6 +535,9 @@ function initSwipeToDelete() {
             e.preventDefault();
             currentX = Math.max(dx, -140);
             card.style.transform = `translateX(${currentX}px)`;
+            // Reveal the delete button proportionally as the card slides,
+            // so it slides in alongside the card rather than appearing late.
+            wrapper?.classList.toggle('swipe-revealed', currentX < -8);
         }, { passive: false });
 
         card.addEventListener('touchend', () => {
@@ -540,9 +545,11 @@ function initSwipeToDelete() {
             if (currentX < -threshold) {
                 card.style.transform = 'translateX(-100px)';
                 card.classList.add('swipe-open');
+                wrapper?.classList.add('swipe-revealed');
             } else {
                 card.style.transform = 'translateX(0)';
                 card.classList.remove('swipe-open');
+                wrapper?.classList.remove('swipe-revealed');
             }
         });
     });
@@ -561,6 +568,7 @@ document.addEventListener('touchstart', e => {
             card.style.transition = 'transform 0.25s ease';
             card.style.transform  = 'translateX(0)';
             card.classList.remove('swipe-open');
+            card.closest('.swipe-wrapper')?.classList.remove('swipe-revealed');
         }
     });
 }, { passive: true });
@@ -632,7 +640,8 @@ function addExercise(wIdx, phase) {
         name: '', type: 'isotonic', phase: phase || 'work',
         bodyWeightPct: 0, heightPct: null, distanceM: null,
         unit: 'reps', target: 10, timedInput: 'reps',
-        sets: 3, setRestSec: 60, exerciseRestSec: 90
+        sets: 3, setRestSec: 60, exerciseRestSec: 90,
+        autoSequence: false
     };
     openExerciseForm('Add Exercise', defaults);
 }
@@ -787,6 +796,16 @@ function openExerciseForm(title, ex) {
                     min="1" step="1" value="${ex.sets ?? 3}">
             </div>
             <div class="ex-form-section">
+                <label class="ex-form-label" for="ef-ex-rest">
+                    Rest before this exercise <span class="ex-form-hint">(seconds)</span>
+                </label>
+                <div class="ex-form-row">
+                    <input id="ef-ex-rest" class="ex-num-input" type="number"
+                        min="0" step="5" value="${ex.exerciseRestSec ?? 90}">
+                    <span class="ex-form-unit">s</span>
+                </div>
+            </div>
+            <div class="ex-form-section">
                 <label class="ex-form-label" for="ef-set-rest">
                     Rest between sets <span class="ex-form-hint">(seconds)</span>
                 </label>
@@ -796,14 +815,18 @@ function openExerciseForm(title, ex) {
                     <span class="ex-form-unit">s</span>
                 </div>
             </div>
-            <div class="ex-form-section">
-                <label class="ex-form-label" for="ef-ex-rest">
-                    Rest before this exercise <span class="ex-form-hint">(seconds)</span>
+            <div id="ef-autoseq-section" class="ex-form-section" style="${ex.type === 'isometric' ? '' : 'display:none'}">
+                <label class="ex-form-label">
+                    Auto-sequence sets
+                    <span class="ex-form-hint"> — when on, the next set starts automatically after rest ends (within this exercise only)</span>
                 </label>
-                <div class="ex-form-row">
-                    <input id="ef-ex-rest" class="ex-num-input" type="number"
-                        min="0" step="5" value="${ex.exerciseRestSec ?? 90}">
-                    <span class="ex-form-unit">s</span>
+                <div class="ex-toggle-row">
+                    <label class="ex-toggle-opt">
+                        <input type="radio" name="ef-autoseq" value="off" ${ex.autoSequence ? '' : 'checked'}> Off
+                    </label>
+                    <label class="ex-toggle-opt">
+                        <input type="radio" name="ef-autoseq" value="on" ${ex.autoSequence ? 'checked' : ''}> On
+                    </label>
                 </div>
             </div>
         </div>
@@ -917,6 +940,7 @@ function exFormTypeChanged() {
     const typeVal = document.querySelector('input[name="ef-type"]:checked')?.value || 'isotonic';
     const unitEl  = document.getElementById('ef-unit');
     if (!unitEl) return;
+    const autoSeqSec = document.getElementById('ef-autoseq-section');
     if (typeVal === 'isometric') {
         unitEl.innerHTML = `<option value="seconds" selected>Seconds</option>`;
         unitEl.disabled = true;
@@ -926,6 +950,7 @@ function exFormTypeChanged() {
         if (hSec) hSec.style.display = 'none';
         if (dSec) dSec.style.display = 'none';
         if (tSec) tSec.style.display = 'none';
+        if (autoSeqSec) autoSeqSec.style.display = '';
     } else {
         unitEl.disabled = false;
         if (unitEl.options.length === 1 && unitEl.options[0].value === 'seconds') {
@@ -936,6 +961,7 @@ function exFormTypeChanged() {
                 <option value="meters">Meters (distance)</option>
             `;
         }
+        if (autoSeqSec) autoSeqSec.style.display = 'none';
         exFormUnitChanged();
     }
     exFormUpdateTargetLabel();
@@ -1004,12 +1030,16 @@ function exFormSave() {
     const sets          = parseInt(document.getElementById('ef-sets')?.value) || 3;
     const setRestSec    = parseInt(document.getElementById('ef-set-rest')?.value) ?? 60;
     const exerciseRestSec = parseInt(document.getElementById('ef-ex-rest')?.value) ?? 90;
+    // autoSequence only meaningful for isometric; always false for other types
+    const autoSeqEl   = document.querySelector('input[name="ef-autoseq"]:checked');
+    const autoSequence = typeVal === 'isometric' && autoSeqEl?.value === 'on';
 
     const exObj = {
         name, type: typeVal, phase: phaseVal,
         bodyWeightPct, heightPct, distanceM,
         unit, target, timedInput,
         sets, setRestSec, exerciseRestSec,
+        autoSequence,
         weights: []
     };
 
@@ -1057,6 +1087,7 @@ function initDragAndDrop() {
 function onDragStart(e) {
     dragSrcIndex = parseInt(this.dataset.index);
     this.classList.add('dragging');
+    this.closest('.swipe-wrapper')?.classList.add('drag-in-progress');
     e.dataTransfer.effectAllowed = 'move';
 }
 function onDragOver(e) {
@@ -1078,6 +1109,7 @@ function onDrop(e) {
 }
 function onDragEnd() {
     document.querySelectorAll('.workout-card').forEach(c => c.classList.remove('dragging','drag-over'));
+    document.querySelectorAll('.swipe-wrapper').forEach(w => w.classList.remove('drag-in-progress'));
     dragSrcIndex = null;
 }
 
@@ -1087,12 +1119,21 @@ function onTouchStart(e) {
     const handle = e.currentTarget;
     touchDragCard = handle.closest('.workout-card');
     dragSrcIndex  = parseInt(touchDragCard.dataset.index);
+    // If this card (or any other) was mid-swipe, close it before dragging —
+    // avoids dragging a card that's still offset to the left.
+    document.querySelectorAll('.workout-card.swipe-open').forEach(c => {
+        c.style.transition = 'transform 0.25s ease';
+        c.style.transform  = 'translateX(0)';
+        c.classList.remove('swipe-open');
+        c.closest('.swipe-wrapper')?.classList.remove('swipe-revealed');
+    });
     const rect = touchDragCard.getBoundingClientRect();
     touchOffsetY = e.touches[0].clientY - rect.top;
     touchClone = touchDragCard.cloneNode(true);
     touchClone.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;opacity:0.85;z-index:9999;pointer-events:none;border:2px solid #30d158;border-radius:14px;background:#2c2c2e;`;
     document.body.appendChild(touchClone);
     touchDragCard.classList.add('dragging');
+    touchDragCard.closest('.swipe-wrapper')?.classList.add('drag-in-progress');
     document.addEventListener('touchmove', onTouchMove, { passive: false });
     document.addEventListener('touchend',  onTouchEnd);
 }
@@ -1123,6 +1164,7 @@ function onTouchEnd() {
         }
     }
     document.querySelectorAll('.workout-card').forEach(c => c.classList.remove('dragging','drag-over'));
+    document.querySelectorAll('.swipe-wrapper').forEach(w => w.classList.remove('drag-in-progress'));
     touchDragCard = null; dragSrcIndex = null;
     loadPlan();
 }
@@ -1630,7 +1672,15 @@ function onCountdownComplete() {
     ex.setTimes[setIdx] = setTimeSec;
     setStartTime = null;
 
-    if (ex.type === 'isometric') {
+    if (ex.type === 'isometric' && ex.autoSequence && currentSet < ex.sets) {
+        // Auto-sequence: skip waiting-input and go straight into next set's
+        // rest-then-active cycle. nextSet() will increment currentSet and
+        // call startSetRestThenActive() — but it also tries to read DOM
+        // inputs for weight, so we must render first so weight-input exists.
+        timerMode = 'idle';
+        renderExercise();
+        nextSet();
+    } else if (ex.type === 'isometric') {
         timerMode = 'waiting-input';
         updateHudTimerDisplay();
         renderExercise();
@@ -1994,7 +2044,7 @@ function triggerCSVDownload(csvContent, filename) {
 }
 
 // ── CSV BACKUP & RESTORE ──────────────────────────────────────────
-const CSV_HEADER = 'workout_index,workout_name,exercise_name,type,phase,sets,target,unit,bodyWeightPct,heightPct,distanceM,setRestSec,exerciseRestSec,timedInput';
+const CSV_HEADER = 'workout_index,workout_name,exercise_name,type,phase,sets,target,unit,bodyWeightPct,heightPct,distanceM,setRestSec,exerciseRestSec,timedInput,autoSequence';
 
 function csvEscape(val) {
     const s = String(val);
@@ -2012,7 +2062,7 @@ function exportPlanCSV() {
     const rows = [CSV_HEADER];
     workoutPlan.forEach((wo, wIdx) => {
         if (wo.exercises.length === 0) {
-            rows.push([csvEscape(wIdx), csvEscape(wo.name), '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
+            rows.push([csvEscape(wIdx), csvEscape(wo.name), '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
         } else {
             wo.exercises.forEach(ex => {
                 rows.push([
@@ -2029,7 +2079,8 @@ function exportPlanCSV() {
                     csvEscape(ex.distanceM       ?? ''),
                     csvEscape(ex.setRestSec      ?? 60),
                     csvEscape(ex.exerciseRestSec ?? 90),
-                    csvEscape(ex.timedInput      || 'reps')
+                    csvEscape(ex.timedInput      || 'reps'),
+                    csvEscape(ex.autoSequence    ? 'true' : 'false')
                 ].join(','));
             });
         }
@@ -2072,13 +2123,15 @@ function importPlanCSV(event) {
                 const setRestSec      = parseInt(cols[11]) || 60;
                 const exerciseRestSec = parseInt(cols[12]) || 90;
                 const timedInput      = (cols[13]?.trim() || 'reps') || 'reps';
+                const autoSequence    = (cols[14]?.trim() || 'false') === 'true';
                 if (!parsed[wIdx]) parsed[wIdx] = { name: wName, exercises: [] };
                 if (exName) {
                     parsed[wIdx].exercises.push({
                         name: exName, type, phase,
                         bodyWeightPct, heightPct, distanceM,
                         setRestSec, exerciseRestSec,
-                        sets, target, unit, timedInput, weights: []
+                        sets, target, unit, timedInput,
+                        autoSequence, weights: []
                     });
                 }
             });
@@ -2477,20 +2530,20 @@ function renderWorkoutChart(workoutName) {
     const unit = isMetric() ? 'J' : 'ft-lbf';
     let labels, workData, powerData;
 
+    let workoutNamesForTooltip = [];
     if (workoutName === '__total__') {
         // All workouts chronologically — each log entry is one data point
         const filtered = progressLogs.filter(log => log.workoutTotalWork != null);
-        labels    = filtered.map(log =>
-            `${new Date(log.date).toLocaleDateString()} – ${escHtml(log.workoutName || '')}`
-        );
+        labels    = filtered.map(log => fmtDate(log.date));
         workData  = filtered.map(log => +(log.workoutTotalWork || 0).toFixed(1));
         powerData = filtered.map(log => log.workoutTotalPower != null ? +(log.workoutTotalPower).toFixed(2) : null);
+        workoutNamesForTooltip = filtered.map(log => log.workoutName || log.day || '');
     } else {
         const filtered = progressLogs.filter(log =>
             (log.workoutName || log.day || '') === workoutName &&
             log.workoutTotalWork != null
         );
-        labels    = filtered.map(log => new Date(log.date).toLocaleDateString());
+        labels    = filtered.map(log => fmtDate(log.date));
         workData  = filtered.map(log => +(log.workoutTotalWork || 0).toFixed(1));
         powerData = filtered.map(log => log.workoutTotalPower != null ? +(log.workoutTotalPower).toFixed(2) : null);
     }
@@ -2531,11 +2584,19 @@ function renderWorkoutChart(workoutName) {
             plugins: {
                 legend: { labels: { color: '#1c1c1e', font: { size: 12 } } },
                 tooltip: { callbacks: {
-                    label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(1) : '—'}`
+                    title: ctx => {
+                        const idx = ctx[0]?.dataIndex;
+                        const dateLabel = ctx[0]?.label || '';
+                        if (workoutNamesForTooltip.length && idx != null) {
+                            return `${dateLabel} \u2014 ${workoutNamesForTooltip[idx]}`;
+                        }
+                        return dateLabel;
+                    },
+                    label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(1) : '\u2014'}`
                 }}
             },
             scales: {
-                x:      { ticks: { color: '#636366', maxRotation: 45 }, grid: { color: '#e5e5ea' } },
+                x:      { ticks: { color: '#636366', font: { size: 10 }, maxRotation: 45 }, grid: { color: '#e5e5ea' } },
                 yWork:  { type: 'linear', position: 'left',  beginAtZero: true, ticks: { color: '#30d158' }, grid: { color: '#e5e5ea' }, title: { display: true, text: `Work (${unit})`, color: '#30d158' } },
                 yPower: { type: 'linear', position: 'right', beginAtZero: true, ticks: { color: '#ff9f0a' }, grid: { drawOnChartArea: false }, title: { display: true, text: `Power (${unit}/s)`, color: '#ff9f0a' } }
             }
@@ -2554,7 +2615,7 @@ function renderExerciseChart(exerciseName) {
             e.name === exerciseName && (e.phase || 'work') === 'work'
         );
         if (!ex) return;
-        points.push({ date: new Date(log.date).toLocaleDateString(), ex });
+        points.push({ date: fmtDate(log.date), ex });
     });
 
     const labels    = points.map(p => p.date);
@@ -2589,7 +2650,7 @@ function renderExerciseChart(exerciseName) {
     ];
 
     const scales = {
-        x:     { ticks: { color: '#636366', maxRotation: 45 }, grid: { color: '#e5e5ea' } },
+        x:     { ticks: { color: '#636366', font: { size: 10 }, maxRotation: 45 }, grid: { color: '#e5e5ea' } },
         yWork: { type: 'linear', position: 'left', beginAtZero: true, ticks: { color: '#0a84ff' }, grid: { color: '#e5e5ea' }, title: { display: true, text: workLabel, color: '#0a84ff' } }
     };
 
@@ -2633,6 +2694,13 @@ function getRandomColor() {
 function formatTime(s) {
     const sec = Math.max(0, Math.round(s));
     return `${String(Math.floor(sec/60)).padStart(2,'0')}:${String(sec%60).padStart(2,'0')}`;
+}
+
+// Format a date string as M/D/YY (e.g. 6/23/26)
+function fmtDate(isoStr) {
+    const d = new Date(isoStr);
+    const yy = String(d.getFullYear()).slice(-2);
+    return `${d.getMonth() + 1}/${d.getDate()}/${yy}`;
 }
 
 // ── Settings TAB ─────────────────────────────────────────────────
