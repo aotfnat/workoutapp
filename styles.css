@@ -1046,10 +1046,11 @@ body:has(#workout-section.active) #floating-menu-btn {
     -webkit-user-select: none;
 }
 .collapse-chevron {
-    font-size: 10px;
+    font-size: 16px;
     color: #aeaeb2;
     flex-shrink: 0;
-    padding-left: 2px;
+    padding: 2px 6px;
+    line-height: 1;
 }
 .card-body {
     margin-top: 8px;

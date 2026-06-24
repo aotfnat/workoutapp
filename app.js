@@ -415,14 +415,14 @@ function loadPlan() {
         card.innerHTML = `
             <div class="workout-card-header" onclick="toggleCard(${wIdx}, event)">
                 <span class="drag-handle" title="Drag to reorder" onclick="event.stopPropagation()">⠿</span>
+                ${isNext
+                    ? `<button class="next-badge-btn" onclick="event.stopPropagation(); advanceToWorkout(${wIdx})">▶ Next</button>`
+                    : `<button class="set-next-btn"   onclick="event.stopPropagation(); advanceToWorkout(${wIdx})">Set Next</button>`}
                 <span class="workout-seq">#${wIdx + 1}</span>
                 <input class="workout-name-input" type="text" value="${escHtml(workout.name)}"
                     onchange="updateWorkoutName(${wIdx}, this.value)"
                     onclick="event.stopPropagation()"
                     placeholder="Workout name">
-                ${isNext
-                    ? `<button class="next-badge-btn" onclick="event.stopPropagation(); advanceToWorkout(${wIdx})">▶ Next</button>`
-                    : `<button class="set-next-btn"   onclick="event.stopPropagation(); advanceToWorkout(${wIdx})">Set Next</button>`}
                 <span class="collapse-chevron">${isExpanded ? '▲' : '▼'}</span>
             </div>
             <div class="card-body" id="card-body-${wIdx}" style="display:${isExpanded ? 'block' : 'none'};">
@@ -736,6 +736,7 @@ function openExerciseForm(title, ex) {
                 </label>
                 <div class="ex-form-row">
                     <input id="ef-bwpct" class="ex-num-input" type="number"
+                        inputmode="numeric" pattern="[0-9]*"
                         min="0" max="100" step="1"
                         value="${Math.round((ex.bodyWeightPct ?? 0) * 100)}"
                         oninput="exFormUpdateBWPreview()" onfocus="this.select()">
@@ -749,6 +750,7 @@ function openExerciseForm(title, ex) {
                 </label>
                 <div class="ex-form-row">
                     <input id="ef-heightpct" class="ex-num-input" type="number"
+                        inputmode="numeric" pattern="[0-9]*"
                         min="0" max="100" step="1"
                         value="${ex.heightPct !== null && ex.heightPct !== undefined ? Math.round(ex.heightPct * 100) : ''}"
                         onfocus="this.select()">
@@ -761,6 +763,7 @@ function openExerciseForm(title, ex) {
                 </label>
                 <div class="ex-form-row">
                     <input id="ef-distance" class="ex-num-input" type="number"
+                        inputmode="numeric" pattern="[0-9]*"
                         min="0" step="1"
                         value="${ex.distanceM ?? ''}"
                         onfocus="this.select()">
@@ -777,6 +780,7 @@ function openExerciseForm(title, ex) {
                 </label>
                 <div class="ex-form-row">
                     <input id="ef-target" class="ex-num-input" type="number"
+                        inputmode="numeric" pattern="[0-9]*"
                         min="1" step="1" value="${ex.target ?? 10}" onfocus="this.select()">
                     <span id="ef-target-unit" class="ex-form-unit"></span>
                 </div>
@@ -796,6 +800,7 @@ function openExerciseForm(title, ex) {
                 <label class="ex-form-label" for="ef-sets">Number of sets</label>
                 <div class="ex-form-row">
                     <input id="ef-sets" class="ex-num-input" type="number"
+                        inputmode="numeric" pattern="[0-9]*"
                         min="1" step="1" value="${ex.sets ?? 3}" onfocus="this.select()">
                     <span class="ex-form-unit">sets</span>
                 </div>
@@ -806,6 +811,7 @@ function openExerciseForm(title, ex) {
                 </label>
                 <div class="ex-form-row">
                     <input id="ef-ex-rest" class="ex-num-input" type="number"
+                        inputmode="numeric" pattern="[0-9]*"
                         min="0" step="5" value="${ex.exerciseRestSec ?? 90}" onfocus="this.select()">
                     <span class="ex-form-unit">s</span>
                 </div>
@@ -816,6 +822,7 @@ function openExerciseForm(title, ex) {
                 </label>
                 <div class="ex-form-row">
                     <input id="ef-set-rest" class="ex-num-input" type="number"
+                        inputmode="numeric" pattern="[0-9]*"
                         min="0" step="5" value="${ex.setRestSec ?? 60}" onfocus="this.select()">
                     <span class="ex-form-unit">s</span>
                 </div>
@@ -1854,7 +1861,9 @@ function renderExercise() {
         ? `<div class="timed-input-block">
                <p class="timed-input-label">⏱ Set complete! Log your ${ex.timedInput === 'distance' ? 'distance' : 'reps'}:</p>
                <label>${timedInputLabel}:
-                   <input type="number" id="timed-user-input" class="timed-user-input" step="1" min="0"
+                   <input type="number" id="timed-user-input" class="timed-user-input"
+                       inputmode="numeric" pattern="[0-9]*"
+                       step="1" min="0"
                        value="${ex.userInputs[setIdx] || ''}" placeholder="0" onfocus="this.select()">
                </label>
            </div>`
