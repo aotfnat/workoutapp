@@ -2223,7 +2223,16 @@ function activateWaitingSW(sw) {
 let _audioCtx = null;
 function getAudioCtx() {
     if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    // iOS suspends the AudioContext when another app takes the audio session.
+    // Resume it immediately so sounds work after switching back from e.g. a podcast app.
+    if (_audioCtx.state === 'suspended') _audioCtx.resume();
     return _audioCtx;
+}
+
+// Resume the AudioContext whenever the app returns to the foreground.
+// iOS does not do this automatically, so sounds would stay silent without this.
+function resumeAudioContext() {
+    if (_audioCtx && _audioCtx.state === 'suspended') _audioCtx.resume();
 }
 
 function playWhistle() {
@@ -2825,6 +2834,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
+            // Resume Web Audio API context if iOS suspended it while another app played audio
+            resumeAudioContext();
             // Re-check auto-complete each time app comes to foreground
             const raw = localStorage.getItem('inProgressWorkout');
             if (raw && !workoutInProgress) {
