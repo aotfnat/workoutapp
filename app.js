@@ -1,5 +1,7 @@
 // app.js
-//Version 9.3
+//Version 9.3.1
+//SOC: added resumeaudiocontext to startworkout function to help when audio sessioin is already owned by another app when workout starts 
+
 
 // ── Schema version guard ─────────────────────────────────────────
 // Bump SCHEMA_VERSION whenever the data model changes in a breaking way.
@@ -1377,6 +1379,7 @@ function resumeWorkoutTab() {
 }
 
 function showStartButton() {
+    resumeAudioContext();
     document.getElementById('start-workout-btn')?.remove();
     const list = document.getElementById('exercise-list');
     const btn = document.createElement('button');
