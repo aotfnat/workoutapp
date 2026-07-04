@@ -1,6 +1,6 @@
 // app.js
-//Version 9.3.1
-//SOC: added resumeaudiocontext to startworkout function to help when audio sessioin is already owned by another app when workout starts 
+//Version 9.4.2
+//SOC: Calendar, Plan, Progress, and Settings tab headers (with the ☰ menu button) are now a persistent sticky header that stays pinned to the top of the tab while the rest of the content scrolls underneath it — matching the Workout tab's HUD, which already did this
 
 
 // ── Schema version guard ─────────────────────────────────────────
@@ -522,6 +522,9 @@ function initSwipeToDelete() {
         const threshold = 80;
 
         card.addEventListener('touchstart', e => {
+            // If this touch is (or becomes) an exercise reorder drag, don't
+            // arm the card swipe at all.
+            if (exerciseReorderTouchActive) { swiping = false; return; }
             startX  = e.touches[0].clientX;
             startY  = e.touches[0].clientY;
             currentX = 0;
@@ -530,6 +533,11 @@ function initSwipeToDelete() {
         }, { passive: true });
 
         card.addEventListener('touchmove', e => {
+            // An exercise row drag (handled by onExTouchStart/onExTouchMove)
+            // is in progress — never let the card's own swipe-to-delete
+            // logic engage on top of it, even if it was armed a moment
+            // earlier from stale start coordinates.
+            if (exerciseReorderTouchActive) { swiping = false; return; }
             const dx = e.touches[0].clientX - startX;
             const dy = e.touches[0].clientY - startY;
             if (!swiping && Math.abs(dy) > Math.abs(dx)) return;
@@ -544,6 +552,7 @@ function initSwipeToDelete() {
         }, { passive: false });
 
         card.addEventListener('touchend', () => {
+            if (exerciseReorderTouchActive) return;
             card.style.transition = 'transform 0.25s ease';
             if (currentX < -threshold) {
                 card.style.transform = 'translateX(-100px)';
@@ -1194,6 +1203,11 @@ function onTouchEnd() {
 let exDragSrcWIdx  = null;
 let exDragSrcEIdx  = null;
 let exDragSrcPhase = null;
+// True for the entire duration of a touch-based exercise reorder drag
+// (from touchstart on the exercise drag handle to touchend). While true,
+// the workout-card swipe-to-delete gesture (initSwipeToDelete) is fully
+// suppressed so the two touch gestures never fight over the same drag.
+let exerciseReorderTouchActive = false;
 
 function initExerciseDragAndDrop() {
     document.querySelectorAll('.plan-ex-row').forEach(row => {
@@ -1263,6 +1277,7 @@ let exTouchDragRow = null, exTouchClone = null, exTouchOffsetY = 0;
 
 function onExTouchStart(e) {
     e.stopPropagation();
+    exerciseReorderTouchActive = true;
     const handle = e.currentTarget;
     exTouchDragRow = handle.closest('.plan-ex-row');
     exDragSrcWIdx  = parseInt(exTouchDragRow.dataset.widx);
@@ -1306,6 +1321,7 @@ function onExTouchEnd() {
     }
     document.querySelectorAll('.plan-ex-row').forEach(r => r.classList.remove('ex-dragging', 'ex-drag-over'));
     exTouchDragRow = null; exDragSrcWIdx = null; exDragSrcEIdx = null; exDragSrcPhase = null;
+    exerciseReorderTouchActive = false;
 }
 
 // ── Previous accomplishment lookup ───────────────────────────────
@@ -2451,6 +2467,34 @@ function importProgressCSV(event) {
 // ── PROGRESS TAB ─────────────────────────────────────────────────
 let chartWorkout  = null;  // Chart.js instance for workout chart
 let chartExercise = null;  // Chart.js instance for exercise chart
+
+// Chart.js's built-in responsive handling relies on a window 'resize' event,
+// but iOS Safari's orientation change frequently fires 'resize' before the
+// layout has actually settled into the new orientation's dimensions (or,
+// in standalone PWA mode, sometimes not at all). That leaves the progress
+// charts sized for the previous orientation until the tab is revisited.
+// Explicitly resize both charts a moment after orientation changes so they
+// pick up the new container dimensions.
+function resizeProgressCharts() {
+    if (chartWorkout)  chartWorkout.resize();
+    if (chartExercise) chartExercise.resize();
+}
+
+window.addEventListener('orientationchange', () => {
+    setTimeout(resizeProgressCharts, 300);
+});
+
+// Fallback for browsers/WebViews that don't reliably fire 'orientationchange'
+// — the (orientation: portrait) media query flips on every rotation too.
+if (window.matchMedia) {
+    const orientationQuery = window.matchMedia('(orientation: portrait)');
+    const onOrientationQueryChange = () => setTimeout(resizeProgressCharts, 300);
+    if (orientationQuery.addEventListener) {
+        orientationQuery.addEventListener('change', onOrientationQueryChange);
+    } else if (orientationQuery.addListener) {
+        orientationQuery.addListener(onOrientationQueryChange); // older Safari
+    }
+}
 
 function loadProgress() {
     renderProgressLog();
