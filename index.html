@@ -1,3 +1,5 @@
+<!-- index.html Workout App -->
+<!-- Version 9.5, SOC: added Sound Reset button to workout side drawer-->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -214,7 +216,7 @@
 
         <div class="ts-section">
             <p class="ts-hint" style="margin:0;color:#8e8e93;font-size:13px;line-height:1.5;">
-                Active and rest durations are set per-exercise during workout creation. Tap the timer area to open this panel.
+                Active and rest durations are set per-exercise during workout creation.
             </p>
         </div>
 
@@ -233,7 +235,12 @@
         <div class="ts-section">
             <div class="ts-label" style="color:#fff;">Sounds</div>
             <button id="sound-toggle-btn" class="ts-order-toggle sound-off" onclick="toggleSound()">🔕 Sound Off</button>
+            <button id="sound-reset-btn" class="ts-order-toggle sound-off" onclick="resumeAudioContext()">Reset Sound</button>
+            <p class="ts-hint" style="margin:0;color:#8e8e93;font-size:13px;line-height:1.5;">
+                Sound On/Off button toggles rest/active countdown timer sound.  Reset Sound button attempts to re-active sound after switching between apps if it doesn't work automatically.
+            </p>
         </div>
+        
     </div>
 
 </div>
