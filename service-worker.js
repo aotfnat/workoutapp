@@ -1,5 +1,7 @@
 // service-worker.js
-const CACHE_NAME = 'fitness-app-v9.5';
+// Version 9.6 — bumped alongside app.js fixes (Next Set debounce, skip-rest
+// 3-beep fix, app-version label retry) so the browser detects the update.
+const CACHE_NAME = 'fitness-app-v9.6.0';
 
 const BASE = self.location.pathname.replace(/\/service-worker\.js$/, '');
 const urlsToCache = [

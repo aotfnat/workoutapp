@@ -1,6 +1,6 @@
 // app.js
-//Version 9.4.3
-//SOC: Timed-isotonic exercises in Warmup/Cooldown can now set "During Timed Set, User Will Log" to None (no reps/distance logged). When None is selected, an Auto-sequence toggle appears (default Off), matching isometric auto-sequencing — sets can chain through rest automatically without waiting for user input. "None" is not offered for the Work phase (Work/Power calc still requires reps or distance).
+//Version 9.6
+//SOC: Debounced the Next Set button to prevent an accidental double-tap from advancing two sets; Skip Rest button now plays the 3-second beep immediately so all three countdown beeps (3, 2, 1) are heard; App version label now retries until leftover service-worker caches finish clearing so it updates right after "Check for App Update" instead of requiring a tab switch
 
 
 // ── Schema version guard ─────────────────────────────────────────
@@ -193,6 +193,12 @@ let setStartTime         = null;
 // Running work total for the Work phase
 let runningWorkTotal     = 0;
 
+// Debounce guard — prevents an accidental double-tap on Next Set (or a
+// rapid double-fire of the click event on mobile) from advancing two
+// sets at once.
+let lastNextSetTime      = 0;
+const NEXT_SET_DEBOUNCE_MS = 500;
+
 // ── In-progress workout persistence ──────────────────────────────
 // Saved to localStorage on every nextSet() so data survives app eviction.
 // Auto-completed silently if last activity was > 3 hours ago.
@@ -315,17 +321,27 @@ function loadCalendar() {
     loadAppVersion();
 }
 
-function loadAppVersion() {
+function loadAppVersion(attempt = 0) {
     const el = document.getElementById('app-version-label');
     if (!el) return;
     if (!('caches' in window)) {
         el.textContent = 'Version unavailable';
         return;
     }
+    const MAX_ATTEMPTS = 6;
     caches.keys().then(keys => {
-        // The active cache name is the one that matches our SW naming convention
-        const swCache = keys.find(k => k.startsWith('fitness-app-'));
-        el.textContent = swCache ? swCache : 'Version unavailable';
+        // The active cache name is the one that matches our SW naming convention.
+        // Right after an app update + reload, the old service worker's cache
+        // delete (in its 'activate' handler) can still be finishing up, so more
+        // than one 'fitness-app-' cache may briefly exist. Retry a few times
+        // (rather than showing/keeping a possibly-stale name) so the label
+        // settles on the correct version without needing a tab switch.
+        const swCaches = keys.filter(k => k.startsWith('fitness-app-'));
+        if (swCaches.length > 1 && attempt < MAX_ATTEMPTS) {
+            setTimeout(() => loadAppVersion(attempt + 1), 400);
+            return;
+        }
+        el.textContent = swCaches[0] || 'Version unavailable';
     }).catch(() => {
         el.textContent = 'Version unavailable';
     });
@@ -480,7 +496,6 @@ function renderExerciseRow(ex, wIdx, eIdx) {
         : '⚠ set weight';
 
     let targetText = '';
-    const timedLogLabel = ex.timedInput === 'distance' ? 'dist' : (ex.timedInput === 'none' ? 'no log' : 'reps');
     if (ex.type === 'isometric') {
         targetText = `${ex.target}s × ${ex.sets} sets`;
     } else if (ex.unit === 'reps') {
@@ -488,19 +503,14 @@ function renderExerciseRow(ex, wIdx, eIdx) {
     } else if (ex.unit === 'meters') {
         targetText = `${ex.target}m × ${ex.sets} sets`;
     } else if (ex.unit === 'seconds') {
-        targetText = ex.timedInput === 'none'
-            ? `${ex.target}s, no logging × ${ex.sets} sets`
-            : `${ex.target}s, log ${timedLogLabel} × ${ex.sets} sets`;
+        const timedLabel = ex.timedInput === 'distance' ? 'dist' : 'reps';
+        targetText = `${ex.target}s, log ${timedLabel} × ${ex.sets} sets`;
     } else if (ex.unit === 'minutes') {
-        targetText = ex.timedInput === 'none'
-            ? `${ex.target}min, no logging × ${ex.sets} sets`
-            : `${ex.target}min, log ${timedLogLabel} × ${ex.sets} sets`;
+        const timedLabel = ex.timedInput === 'distance' ? 'dist' : 'reps';
+        targetText = `${ex.target}min, log ${timedLabel} × ${ex.sets} sets`;
     }
 
-    const isTimedNoneIso = ex.type !== 'isometric'
-        && (ex.unit === 'seconds' || ex.unit === 'minutes')
-        && ex.timedInput === 'none';
-    const autoSeqText = ((ex.type === 'isometric' || isTimedNoneIso) && ex.autoSequence) ? ' · ⚡ Auto-seq' : '';
+    const autoSeqText = (ex.type === 'isometric' && ex.autoSequence) ? ' · ⚡ Auto-seq' : '';
     const restText = `Ex rest: ${ex.exerciseRestSec ?? 90}s${autoSeqText} · Set rest: ${ex.setRestSec ?? 60}s`;
 
     return `
@@ -696,16 +706,8 @@ function openExerciseForm(title, ex) {
 
     const isTimedSet = ex.type !== 'isometric' && (ex.unit === 'seconds' || ex.unit === 'minutes');
     const timedVis   = isTimedSet ? '' : 'display:none';
-    const currentPhase     = ex.phase || 'work';
-    const timedInputVal    = ex.timedInput || 'reps';
-    const timedRepsChecked = (timedInputVal === 'reps')     ? 'checked' : '';
-    const timedDistChecked = (timedInputVal === 'distance') ? 'checked' : '';
-    const timedNoneChecked = (timedInputVal === 'none')     ? 'checked' : '';
-    // "No logging" is only offered for Warmup/Cooldown timed-isotonic exercises —
-    // the Work phase always needs reps/distance to compute Work/Power.
-    const noneOptVis = currentPhase !== 'work' ? '' : 'display:none';
-    const showAutoSeq = ex.type === 'isometric'
-        || (isTimedSet && currentPhase !== 'work' && timedInputVal === 'none');
+    const timedRepsChecked = (ex.timedInput !== 'distance') ? 'checked' : '';
+    const timedDistChecked = (ex.timedInput === 'distance') ? 'checked' : '';
 
     const isDistanceBased = ex.unit === 'meters';
     const heightVis = (ex.type !== 'isometric' && !isDistanceBased) ? '' : 'display:none';
@@ -754,7 +756,7 @@ function openExerciseForm(title, ex) {
             </div>
             <div class="ex-form-section">
                 <label class="ex-form-label" for="ef-phase">Phase</label>
-                <select id="ef-phase" class="ex-form-select" onchange="exFormPhaseChanged()">${phaseOpts}</select>
+                <select id="ef-phase" class="ex-form-select">${phaseOpts}</select>
             </div>
             <div class="ex-form-section">
                 <label class="ex-form-label" for="ef-bwpct">
@@ -815,16 +817,10 @@ function openExerciseForm(title, ex) {
                 <label class="ex-form-label">During timed set, user will log</label>
                 <div class="ex-toggle-row">
                     <label class="ex-toggle-opt">
-                        <input type="radio" name="ef-timed-input" value="reps" ${timedRepsChecked}
-                            onchange="exFormTimedInputChanged()"> Reps
+                        <input type="radio" name="ef-timed-input" value="reps" ${timedRepsChecked}> Reps
                     </label>
                     <label class="ex-toggle-opt">
-                        <input type="radio" name="ef-timed-input" value="distance" ${timedDistChecked}
-                            onchange="exFormTimedInputChanged()"> Distance
-                    </label>
-                    <label class="ex-toggle-opt" id="ef-timed-none-opt" style="${noneOptVis}">
-                        <input type="radio" name="ef-timed-input" value="none" ${timedNoneChecked}
-                            onchange="exFormTimedInputChanged()"> None
+                        <input type="radio" name="ef-timed-input" value="distance" ${timedDistChecked}> Distance
                     </label>
                 </div>
             </div>
@@ -859,7 +855,7 @@ function openExerciseForm(title, ex) {
                     <span class="ex-form-unit">s</span>
                 </div>
             </div>
-            <div id="ef-autoseq-section" class="ex-form-section" style="${showAutoSeq ? '' : 'display:none'}">
+            <div id="ef-autoseq-section" class="ex-form-section" style="${ex.type === 'isometric' ? '' : 'display:none'}">
                 <label class="ex-form-label">
                     Auto-sequence sets
                     <span class="ex-form-hint"> — when on, the next set starts automatically after rest ends (within this exercise only)</span>
@@ -984,6 +980,7 @@ function exFormTypeChanged() {
     const typeVal = document.querySelector('input[name="ef-type"]:checked')?.value || 'isotonic';
     const unitEl  = document.getElementById('ef-unit');
     if (!unitEl) return;
+    const autoSeqSec = document.getElementById('ef-autoseq-section');
     if (typeVal === 'isometric') {
         unitEl.innerHTML = `<option value="seconds" selected>Seconds</option>`;
         unitEl.disabled = true;
@@ -993,6 +990,7 @@ function exFormTypeChanged() {
         if (hSec) hSec.style.display = 'none';
         if (dSec) dSec.style.display = 'none';
         if (tSec) tSec.style.display = 'none';
+        if (autoSeqSec) autoSeqSec.style.display = '';
     } else {
         unitEl.disabled = false;
         if (unitEl.options.length === 1 && unitEl.options[0].value === 'seconds') {
@@ -1003,10 +1001,10 @@ function exFormTypeChanged() {
                 <option value="meters">Meters (distance)</option>
             `;
         }
+        if (autoSeqSec) autoSeqSec.style.display = 'none';
         exFormUnitChanged();
     }
     exFormUpdateTargetLabel();
-    exFormRefreshTimedOptions();
 }
 
 function exFormUnitChanged() {
@@ -1022,49 +1020,6 @@ function exFormUnitChanged() {
     if (dSec) dSec.style.display = isDistance ? '' : 'none';
     if (tSec) tSec.style.display = isTimed ? '' : 'none';
     exFormUpdateTargetLabel();
-    exFormRefreshAutoSeq();
-}
-
-// Called when the Phase select changes. "No logging" (for timed-isotonic
-// exercises) is only valid in Warmup/Cooldown — the Work phase always
-// needs reps/distance to compute Work/Power. Hide the option in Work,
-// and fall back to "Reps" if it was selected.
-function exFormRefreshTimedOptions() {
-    const phaseVal = document.getElementById('ef-phase')?.value || 'work';
-    const noneOpt  = document.getElementById('ef-timed-none-opt');
-    if (noneOpt) noneOpt.style.display = (phaseVal !== 'work') ? '' : 'none';
-
-    if (phaseVal === 'work') {
-        const noneRadio = document.querySelector('input[name="ef-timed-input"][value="none"]');
-        if (noneRadio && noneRadio.checked) {
-            const repsRadio = document.querySelector('input[name="ef-timed-input"][value="reps"]');
-            if (repsRadio) repsRadio.checked = true;
-        }
-    }
-    exFormRefreshAutoSeq();
-}
-
-function exFormPhaseChanged() {
-    exFormRefreshTimedOptions();
-}
-
-function exFormTimedInputChanged() {
-    exFormRefreshAutoSeq();
-}
-
-// Auto-sequence is available for isometric exercises (always), and for
-// timed-isotonic exercises in Warmup/Cooldown when "None" logging is chosen.
-function exFormRefreshAutoSeq() {
-    const autoSeqSec = document.getElementById('ef-autoseq-section');
-    if (!autoSeqSec) return;
-    const typeVal  = document.querySelector('input[name="ef-type"]:checked')?.value || 'isotonic';
-    const phaseVal = document.getElementById('ef-phase')?.value || 'work';
-    const unitVal  = document.getElementById('ef-unit')?.value || 'reps';
-    const timedInputVal = document.querySelector('input[name="ef-timed-input"]:checked')?.value || 'reps';
-    const isTimedSet = typeVal !== 'isometric' && (unitVal === 'seconds' || unitVal === 'minutes');
-    const show = typeVal === 'isometric'
-        || (isTimedSet && phaseVal !== 'work' && timedInputVal === 'none');
-    autoSeqSec.style.display = show ? '' : 'none';
 }
 
 function exFormUpdateTargetLabel() {
@@ -1111,19 +1066,13 @@ function exFormSave() {
         : (document.getElementById('ef-unit')?.value || 'reps');
     const target   = parseInt(document.getElementById('ef-target')?.value) || 10;
     const timedInputEl = document.querySelector('input[name="ef-timed-input"]:checked');
-    let timedInput   = timedInputEl ? timedInputEl.value : 'reps';
-    // Safety net: "None" logging is only valid for Warmup/Cooldown timed-isotonic sets.
-    if (timedInput === 'none' && (typeVal === 'isometric' || phaseVal === 'work')) timedInput = 'reps';
+    const timedInput   = timedInputEl ? timedInputEl.value : 'reps';
     const sets          = parseInt(document.getElementById('ef-sets')?.value) || 3;
     const setRestSec    = parseInt(document.getElementById('ef-set-rest')?.value) ?? 60;
     const exerciseRestSec = parseInt(document.getElementById('ef-ex-rest')?.value) ?? 90;
-    // Auto-sequence is meaningful for isometric exercises (always), and for
-    // timed-isotonic Warmup/Cooldown exercises where the user logs nothing.
-    const isTimedSet  = typeVal !== 'isometric' && (unit === 'seconds' || unit === 'minutes');
+    // autoSequence only meaningful for isometric; always false for other types
     const autoSeqEl   = document.querySelector('input[name="ef-autoseq"]:checked');
-    const autoSeqAllowed = typeVal === 'isometric'
-        || (isTimedSet && phaseVal !== 'work' && timedInput === 'none');
-    const autoSequence = autoSeqAllowed && autoSeqEl?.value === 'on';
+    const autoSequence = typeVal === 'isometric' && autoSeqEl?.value === 'on';
 
     const exObj = {
         name, type: typeVal, phase: phaseVal,
@@ -1628,6 +1577,11 @@ function skipToEndOfRest() {
     if (timerMode !== 'rest' && timerMode !== 'paused-rest') return;
     if (timerRemaining <= 3) return; // already nearly done
     timerRemaining = 3;
+    // The running interval only beeps on its own 1-second tick, which would
+    // otherwise skip the "3" beep entirely (it jumps straight from whatever
+    // the remaining time was to 3, then ticks down to 2 on its next cycle).
+    // Play the 3-second beep immediately so the user hears all three (3,2,1).
+    playBeep();
     // If paused, resume from 3s; if already running the interval will
     // pick up timerRemaining naturally on its next tick
     if (timerMode === 'paused-rest') {
@@ -1771,13 +1725,7 @@ function onCountdownComplete() {
     ex.setTimes[setIdx] = setTimeSec;
     setStartTime = null;
 
-    // Timed-isotonic sets where the user logs nothing (Warmup/Cooldown only)
-    // can also auto-sequence, same as isometric.
-    const isTimedNoneIso = ex.type !== 'isometric'
-        && (ex.unit === 'seconds' || ex.unit === 'minutes')
-        && ex.timedInput === 'none';
-
-    if ((ex.type === 'isometric' || isTimedNoneIso) && ex.autoSequence && currentSet < ex.sets) {
+    if (ex.type === 'isometric' && ex.autoSequence && currentSet < ex.sets) {
         // Auto-sequence: skip waiting-input and go straight into next set's
         // rest-then-active cycle. nextSet() will increment currentSet and
         // call startSetRestThenActive() — but it also tries to read DOM
@@ -1790,8 +1738,7 @@ function onCountdownComplete() {
         updateHudTimerDisplay();
         renderExercise();
     } else {
-        // Timed isotonic: need user to log reps/distance (or, if "None" is
-        // set, just confirm and tap Next Set — handled in renderExercise())
+        // Timed isotonic: need user to log reps or distance
         timerMode = 'waiting-input';
         updateHudTimerDisplay();
         renderExercise();
@@ -1800,6 +1747,11 @@ function onCountdownComplete() {
 
 // ── Next Set button handler ───────────────────────────────────────
 function nextSet() {
+    // Guard against accidental double-tap / double-fired click advancing two sets
+    const now = Date.now();
+    if (now - lastNextSetTime < NEXT_SET_DEBOUNCE_MS) return;
+    lastNextSetTime = now;
+
     const ex = currentWorkout[currentExerciseIndex];
     const setIdx = currentSet - 1;
 
@@ -1814,8 +1766,7 @@ function nextSet() {
     }
 
     // For timed-isotonic (waiting-input), save the reps/distance the user entered
-    // — skipped entirely when "None" logging is selected (no input field is shown)
-    if (ex.type !== 'isometric' && (ex.unit === 'seconds' || ex.unit === 'minutes') && ex.timedInput !== 'none') {
+    if (ex.type !== 'isometric' && (ex.unit === 'seconds' || ex.unit === 'minutes')) {
         const inputVal = parseFloat(document.getElementById('timed-user-input')?.value) || 0;
         ex.userInputs[setIdx] = inputVal;
     }
@@ -1934,13 +1885,9 @@ function renderExercise() {
     } else if (ex.unit === 'reps') {
         goalText = `Target: ${ex.target} reps`;
     } else if (ex.unit === 'seconds') {
-        goalText = ex.timedInput === 'none'
-            ? `Timed set: ${ex.target}s — no logging`
-            : `Timed set: ${ex.target}s — log ${ex.timedInput === 'distance' ? 'distance' : 'reps'} after`;
+        goalText = `Timed set: ${ex.target}s — log ${ex.timedInput === 'distance' ? 'distance' : 'reps'} after`;
     } else if (ex.unit === 'minutes') {
-        goalText = ex.timedInput === 'none'
-            ? `Timed set: ${ex.target} min — no logging`
-            : `Timed set: ${ex.target} min — log ${ex.timedInput === 'distance' ? 'distance' : 'reps'} after`;
+        goalText = `Timed set: ${ex.target} min — log ${ex.timedInput === 'distance' ? 'distance' : 'reps'} after`;
     } else if (ex.unit === 'meters') {
         goalText = `Distance: ${ex.distanceM || ex.target}m`;
     }
@@ -1949,11 +1896,9 @@ function renderExercise() {
     const phaseBadgeMap = { warmup: '🌡 Warmup', work: '💪 Work', cooldown: '❄️ Cooldown' };
     const phaseBadge = phaseBadgeMap[ex.phase || 'work'] || '';
 
-    // Timed-isotonic input (shown in waiting-input mode) — not shown when
-    // "None" logging is selected, since there's nothing to log
-    const isTimedIsotonic = ex.type !== 'isometric' && (ex.unit === 'seconds' || ex.unit === 'minutes');
-    const needsTimedInput = timerMode === 'waiting-input' && isTimedIsotonic && ex.timedInput !== 'none';
-    const needsTimedNoneConfirm = timerMode === 'waiting-input' && isTimedIsotonic && ex.timedInput === 'none';
+    // Timed-isotonic input (shown in waiting-input mode)
+    const needsTimedInput = timerMode === 'waiting-input' && ex.type !== 'isometric'
+                            && (ex.unit === 'seconds' || ex.unit === 'minutes');
     const timedInputLabel = ex.timedInput === 'distance'
         ? `Distance completed (${userSettings.weightUnit === 'lb' ? 'ft' : 'm'})`
         : 'Reps completed';
@@ -1968,11 +1913,6 @@ function renderExercise() {
                        value="${ex.userInputs[setIdx] || ''}" placeholder="0" onfocus="this.select()">
                </label>
            </div>`
-        : '';
-
-    // Timed-isotonic with "None" logging: just confirm weight and tap next
-    const timedNoneWaitingHTML = needsTimedNoneConfirm
-        ? `<p class="timed-input-label">✅ Set complete! Update added weight, then tap Next Set.</p>`
         : '';
 
     // Isometric waiting-input: just confirm weight and tap next
@@ -2001,7 +1941,6 @@ function renderExercise() {
         <p class="goal-set-line">Set <span class="set-counter-num">${currentSet}/${ex.sets}</span> — ${goalText}</p>
         <p class="weight-inline">Body weight load: ${formatBodyWeightForce(ex)} &nbsp;—&nbsp; Added weight (${userSettings.weightUnit}): <input type="number" step="0.5" id="weight-input" value="${ex.weights[setIdx] || ''}" class="weight-inline-input"></p>
         ${isoWaitingHTML}
-        ${timedNoneWaitingHTML}
         ${timedInputHTML}
         <div class="set-btn-row">
             <button class="back-set-btn" onclick="prevSet()">${isFirst ? '✕' : '‹'}</button>
@@ -2034,7 +1973,7 @@ function completeWorkout(silent = false) {
             const setTimeSec = setStartTime ? Math.round((Date.now() - setStartTime) / 1000) : timerElapsed;
             lastEx.setTimes[setIdx] = setTimeSec;
         }
-        if (lastEx.type !== 'isometric' && (lastEx.unit === 'seconds' || lastEx.unit === 'minutes') && lastEx.timedInput !== 'none') {
+        if (lastEx.type !== 'isometric' && (lastEx.unit === 'seconds' || lastEx.unit === 'minutes')) {
             lastEx.userInputs[setIdx] = parseFloat(document.getElementById('timed-user-input')?.value) || 0;
         }
 
