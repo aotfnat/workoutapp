@@ -1,6 +1,6 @@
 // app.js
-//Version 9.6
-//SOC: Debounced the Next Set button to prevent an accidental double-tap from advancing two sets; Skip Rest button now plays the 3-second beep immediately so all three countdown beeps (3, 2, 1) are heard; App version label now retries until leftover service-worker caches finish clearing so it updates right after "Check for App Update" instead of requiring a tab switch
+//Version 9.7
+//SOC: "Last Time" block during a workout now also shows what was accomplished last time — the reps/distance logged for timed sets, and the time taken for rep/distance sets; Progress CSV export/import updated to carry set times so this survives backup/restore
 
 
 // ── Schema version guard ─────────────────────────────────────────
@@ -1353,13 +1353,36 @@ function getPreviousAccomplishment(exName, setIndex) {
         const unitLabel = { reps:'reps', seconds:'sec', minutes:'min', meters:'m' }[found.unit] || 'reps';
         const date = new Date(log.date).toLocaleDateString();
         const wu   = log.weightUnit || userSettings.weightUnit;
+
+        // Timed isotonic sets (seconds/minutes): show what was logged after the timer ended (reps or distance)
+        let accomplished = null, accomplishedLabel = '';
+        if (found.type !== 'isometric' && (found.unit === 'seconds' || found.unit === 'minutes')) {
+            const val = found.userInputs?.[setIndex];
+            if (val !== undefined && val !== null && val !== 0) {
+                accomplished = val;
+                accomplishedLabel = found.timedInput === 'distance'
+                    ? (wu === 'lb' ? 'ft' : 'm')
+                    : 'reps';
+            }
+        }
+
+        // Rep/distance-based sets (reps/meters): show how long the set took
+        let setTimeSec = null;
+        if (found.type !== 'isometric' && (found.unit === 'reps' || found.unit === 'meters')) {
+            const t = found.setTimes?.[setIndex];
+            if (t !== undefined && t !== null && t > 0) setTimeSec = t;
+        }
+
         return {
             date,
             target: found.target,
             unit:   found.unit,
             unitLabel,
             weight:     hasWeight ? weight : null,
-            weightUnit: wu
+            weightUnit: wu,
+            accomplished,
+            accomplishedLabel,
+            setTimeSec
         };
     }
     return null;
@@ -1928,6 +1951,8 @@ function renderExercise() {
                <span class="prev-stats">
                    Target: ${prev.target} ${prev.unitLabel}
                    ${prev.weight !== null ? ` · Added: ${prev.weight} ${prev.weightUnit}` : ''}
+                   ${prev.accomplished !== null ? ` · Logged: ${prev.accomplished} ${prev.accomplishedLabel}` : ''}
+                   ${prev.setTimeSec !== null ? ` · Time: ${formatTime(prev.setTimeSec)}` : ''}
                </span>
            </div>`
         : `<div class="prev-accomplishment prev-none">No previous data for this set</div>`;
@@ -2358,7 +2383,7 @@ function updateSoundUI() {
 }
 
 // ── PROGRESS CSV BACKUP & RESTORE ────────────────────────────────
-const PROGRESS_CSV_HEADER = 'date,workout_name,duration_seconds,weight_unit,height_unit,workout_total_work,workout_total_power,exercise_name,type,phase,sets,target,unit,bodyWeightPct,heightPct,weights,timedInput,user_inputs,total_work,total_power,total_tension';
+const PROGRESS_CSV_HEADER = 'date,workout_name,duration_seconds,weight_unit,height_unit,workout_total_work,workout_total_power,exercise_name,type,phase,sets,target,unit,bodyWeightPct,heightPct,weights,timedInput,user_inputs,set_times,total_work,total_power,total_tension';
 
 function exportProgressCSV() {
     if (progressLogs.length === 0) {
@@ -2375,11 +2400,12 @@ function exportProgressCSV() {
         const wkWork  = csvEscape(log.workoutTotalWork  ?? '');
         const wkPower = csvEscape(log.workoutTotalPower ?? '');
         if (!log.exercises || log.exercises.length === 0) {
-            rows.push([date, woName, dur, wu, hu, wkWork, wkPower, '', '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
+            rows.push([date, woName, dur, wu, hu, wkWork, wkPower, '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
         } else {
             log.exercises.forEach(ex => {
                 const weights    = Array.isArray(ex.weights)    ? ex.weights.join('|')    : '';
                 const userInputs = Array.isArray(ex.userInputs) ? ex.userInputs.join('|') : '';
+                const setTimes   = Array.isArray(ex.setTimes)   ? ex.setTimes.join('|')   : '';
                 rows.push([
                     date, woName, dur, wu, hu, wkWork, wkPower,
                     csvEscape(ex.name),
@@ -2393,6 +2419,7 @@ function exportProgressCSV() {
                     csvEscape(weights),
                     csvEscape(ex.timedInput    || 'reps'),
                     csvEscape(userInputs),
+                    csvEscape(setTimes),
                     csvEscape(ex.totalWork     ?? ''),
                     csvEscape(ex.totalPower    ?? ''),
                     csvEscape(ex.totalTension  ?? '')
@@ -2420,9 +2447,10 @@ function importProgressCSV(event) {
                 alert("Import failed: unexpected header.\nExpected: " + PROGRESS_CSV_HEADER);
                 return;
             }
-            // Detect format: old (14 cols), new (20 cols), or latest (21 cols with user_inputs)
+            // Detect format: old (14 cols), new (20 cols), or latest (21/22 cols with user_inputs / set_times)
             const isNewFormat    = header.includes('workout_total_work');
             const hasUserInputs  = header.includes('user_inputs');
+            const hasSetTimes    = header.includes('set_times');
             const logMap = {}, logOrder = [];
             lines.slice(1).forEach(line => {
                 const cols = parseCSVLine(line);
@@ -2452,6 +2480,8 @@ function importProgressCSV(event) {
                 const timedInput    = cols[ci++]?.trim() || 'reps';
                 const userInputsRaw = hasUserInputs ? (cols[ci++]?.trim() || '') : '';
                 const userInputs    = userInputsRaw ? userInputsRaw.split('|').map(Number) : [];
+                const setTimesRaw   = hasSetTimes ? (cols[ci++]?.trim() || '') : '';
+                const setTimes      = setTimesRaw ? setTimesRaw.split('|').map(Number) : [];
                 let totalWork = null, totalPower = null, totalTension = null;
                 if (isNewFormat) {
                     const tw = cols[ci++]?.trim(); totalWork    = tw !== '' ? parseFloat(tw) : null;
@@ -2468,7 +2498,7 @@ function importProgressCSV(event) {
                     logMap[key].exercises.push({
                         name: exName, type, phase,
                         bodyWeightPct, heightPct,
-                        sets, target, unit, timedInput, weights, userInputs,
+                        sets, target, unit, timedInput, weights, userInputs, setTimes,
                         totalWork, totalPower, totalTension,
                         isIsometric: type === 'isometric'
                     });

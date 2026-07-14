@@ -1,7 +1,7 @@
 // service-worker.js
-// Version 9.6 — bumped alongside app.js fixes (Next Set debounce, skip-rest
-// 3-beep fix, app-version label retry) so the browser detects the update.
-const CACHE_NAME = 'fitness-app-v9.6.0';
+// Version 9.7 — bumped alongside app.js: Last Time block now shows
+// accomplished reps/distance and set time; progress CSV carries set times.
+const CACHE_NAME = 'fitness-app-v9.7.0';
 
 const BASE = self.location.pathname.replace(/\/service-worker\.js$/, '');
 const urlsToCache = [
