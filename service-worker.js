@@ -1,7 +1,8 @@
 // service-worker.js
-// Version 9.7 — bumped alongside app.js: Last Time block now shows
-// accomplished reps/distance and set time; progress CSV carries set times.
-const CACHE_NAME = 'fitness-app-v9.7.0';
+// Version 9.8 — bumped alongside app.js, exercise-library.js, and index.html:
+// removed isometric "Hold complete" popup and the redundant Save Plan button;
+// added Custom Exercise Library CSV export/import (Plan tab).
+const CACHE_NAME = 'fitness-app-v9.8.0';
 
 const BASE = self.location.pathname.replace(/\/service-worker\.js$/, '');
 const urlsToCache = [

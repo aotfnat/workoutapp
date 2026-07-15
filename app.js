@@ -1,6 +1,6 @@
 // app.js
-//Version 9.7
-//SOC: "Last Time" block during a workout now also shows what was accomplished last time — the reps/distance logged for timed sets, and the time taken for rep/distance sets; Progress CSV export/import updated to carry set times so this survives backup/restore
+//Version 9.8
+//SOC: Removed the "Hold complete!" popup after isometric sets; removed the redundant Save Plan button/function (the plan already autosaves on every add, edit, and reorder)
 
 
 // ── Schema version guard ─────────────────────────────────────────
@@ -309,7 +309,6 @@ function savePlan() {
     localStorage.setItem('workoutPlan', JSON.stringify(workoutPlan));
     localStorage.setItem('currentWorkoutIndex', String(currentWorkoutIndex));
 }
-function savePlanWithAlert() { savePlan(); alert('Plan saved!'); }
 
 
 // ── CALENDAR ─────────────────────────────────────────────────────
@@ -1938,11 +1937,6 @@ function renderExercise() {
            </div>`
         : '';
 
-    // Isometric waiting-input: just confirm weight and tap next
-    const isoWaitingHTML = (timerMode === 'waiting-input' && ex.type === 'isometric')
-        ? `<p class="timed-input-label">✅ Hold complete! Update added weight, then tap Next Set.</p>`
-        : '';
-
     // Previous accomplishment
     const prev = getPreviousAccomplishment(ex.name, setIdx);
     const prevHTML = prev
@@ -1965,7 +1959,6 @@ function renderExercise() {
         <h3>${escHtml(ex.name)}</h3>
         <p class="goal-set-line">Set <span class="set-counter-num">${currentSet}/${ex.sets}</span> — ${goalText}</p>
         <p class="weight-inline">Body weight load: ${formatBodyWeightForce(ex)} &nbsp;—&nbsp; Added weight (${userSettings.weightUnit}): <input type="number" step="0.5" id="weight-input" value="${ex.weights[setIdx] || ''}" class="weight-inline-input"></p>
-        ${isoWaitingHTML}
         ${timedInputHTML}
         <div class="set-btn-row">
             <button class="back-set-btn" onclick="prevSet()">${isFirst ? '✕' : '‹'}</button>
