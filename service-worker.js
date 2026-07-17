@@ -1,8 +1,6 @@
 // service-worker.js
-// Version 9.8 — bumped alongside app.js, exercise-library.js, and index.html:
-// removed isometric "Hold complete" popup and the redundant Save Plan button;
-// added Custom Exercise Library CSV export/import (Plan tab).
-const CACHE_NAME = 'fitness-app-v9.8.0';
+// Version 9.8.1 — add back in timed isotonic auto sequence
+const CACHE_NAME = 'fitness-app-v9.8.1';
 
 const BASE = self.location.pathname.replace(/\/service-worker\.js$/, '');
 const urlsToCache = [

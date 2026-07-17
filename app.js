@@ -1,6 +1,6 @@
 // app.js
-//Version 9.8
-//SOC: Removed the "Hold complete!" popup after isometric sets; removed the redundant Save Plan button/function (the plan already autosaves on every add, edit, and reorder)
+//Version 9.8.1
+//SOC: Restored Timed isotonic auto-sequencing
 
 
 // ── Schema version guard ─────────────────────────────────────────
@@ -495,6 +495,7 @@ function renderExerciseRow(ex, wIdx, eIdx) {
         : '⚠ set weight';
 
     let targetText = '';
+    const timedLogLabel = ex.timedInput === 'distance' ? 'dist' : (ex.timedInput === 'none' ? 'no log' : 'reps');
     if (ex.type === 'isometric') {
         targetText = `${ex.target}s × ${ex.sets} sets`;
     } else if (ex.unit === 'reps') {
@@ -502,14 +503,19 @@ function renderExerciseRow(ex, wIdx, eIdx) {
     } else if (ex.unit === 'meters') {
         targetText = `${ex.target}m × ${ex.sets} sets`;
     } else if (ex.unit === 'seconds') {
-        const timedLabel = ex.timedInput === 'distance' ? 'dist' : 'reps';
-        targetText = `${ex.target}s, log ${timedLabel} × ${ex.sets} sets`;
+        targetText = ex.timedInput === 'none'
+            ? `${ex.target}s, no logging × ${ex.sets} sets`
+            : `${ex.target}s, log ${timedLogLabel} × ${ex.sets} sets`;
     } else if (ex.unit === 'minutes') {
-        const timedLabel = ex.timedInput === 'distance' ? 'dist' : 'reps';
-        targetText = `${ex.target}min, log ${timedLabel} × ${ex.sets} sets`;
+        targetText = ex.timedInput === 'none'
+            ? `${ex.target}min, no logging × ${ex.sets} sets`
+            : `${ex.target}min, log ${timedLogLabel} × ${ex.sets} sets`;
     }
 
-    const autoSeqText = (ex.type === 'isometric' && ex.autoSequence) ? ' · ⚡ Auto-seq' : '';
+    const isTimedNoneIso = ex.type !== 'isometric'
+        && (ex.unit === 'seconds' || ex.unit === 'minutes')
+        && ex.timedInput === 'none';
+    const autoSeqText = ((ex.type === 'isometric' || isTimedNoneIso) && ex.autoSequence) ? ' · ⚡ Auto-seq' : '';
     const restText = `Ex rest: ${ex.exerciseRestSec ?? 90}s${autoSeqText} · Set rest: ${ex.setRestSec ?? 60}s`;
 
     return `
@@ -705,8 +711,16 @@ function openExerciseForm(title, ex) {
 
     const isTimedSet = ex.type !== 'isometric' && (ex.unit === 'seconds' || ex.unit === 'minutes');
     const timedVis   = isTimedSet ? '' : 'display:none';
-    const timedRepsChecked = (ex.timedInput !== 'distance') ? 'checked' : '';
-    const timedDistChecked = (ex.timedInput === 'distance') ? 'checked' : '';
+    const currentPhase     = ex.phase || 'work';
+    const timedInputVal    = ex.timedInput || 'reps';
+    const timedRepsChecked = (timedInputVal === 'reps')     ? 'checked' : '';
+    const timedDistChecked = (timedInputVal === 'distance') ? 'checked' : '';
+    const timedNoneChecked = (timedInputVal === 'none')     ? 'checked' : '';
+    // "No logging" is only offered for Warmup/Cooldown timed-isotonic exercises —
+    // the Work phase always needs reps/distance to compute Work/Power.
+    const noneOptVis = currentPhase !== 'work' ? '' : 'display:none';
+    const showAutoSeq = ex.type === 'isometric'
+        || (isTimedSet && currentPhase !== 'work' && timedInputVal === 'none');
 
     const isDistanceBased = ex.unit === 'meters';
     const heightVis = (ex.type !== 'isometric' && !isDistanceBased) ? '' : 'display:none';
@@ -755,7 +769,7 @@ function openExerciseForm(title, ex) {
             </div>
             <div class="ex-form-section">
                 <label class="ex-form-label" for="ef-phase">Phase</label>
-                <select id="ef-phase" class="ex-form-select">${phaseOpts}</select>
+                <select id="ef-phase" class="ex-form-select" onchange="exFormPhaseChanged()">${phaseOpts}</select>
             </div>
             <div class="ex-form-section">
                 <label class="ex-form-label" for="ef-bwpct">
@@ -816,10 +830,16 @@ function openExerciseForm(title, ex) {
                 <label class="ex-form-label">During timed set, user will log</label>
                 <div class="ex-toggle-row">
                     <label class="ex-toggle-opt">
-                        <input type="radio" name="ef-timed-input" value="reps" ${timedRepsChecked}> Reps
+                        <input type="radio" name="ef-timed-input" value="reps" ${timedRepsChecked}
+                            onchange="exFormTimedInputChanged()"> Reps
                     </label>
                     <label class="ex-toggle-opt">
-                        <input type="radio" name="ef-timed-input" value="distance" ${timedDistChecked}> Distance
+                        <input type="radio" name="ef-timed-input" value="distance" ${timedDistChecked}
+                            onchange="exFormTimedInputChanged()"> Distance
+                    </label>
+                    <label class="ex-toggle-opt" id="ef-timed-none-opt" style="${noneOptVis}">
+                        <input type="radio" name="ef-timed-input" value="none" ${timedNoneChecked}
+                            onchange="exFormTimedInputChanged()"> None
                     </label>
                 </div>
             </div>
@@ -854,7 +874,7 @@ function openExerciseForm(title, ex) {
                     <span class="ex-form-unit">s</span>
                 </div>
             </div>
-            <div id="ef-autoseq-section" class="ex-form-section" style="${ex.type === 'isometric' ? '' : 'display:none'}">
+            <div id="ef-autoseq-section" class="ex-form-section" style="${showAutoSeq ? '' : 'display:none'}">
                 <label class="ex-form-label">
                     Auto-sequence sets
                     <span class="ex-form-hint"> — when on, the next set starts automatically after rest ends (within this exercise only)</span>
@@ -1004,6 +1024,7 @@ function exFormTypeChanged() {
         exFormUnitChanged();
     }
     exFormUpdateTargetLabel();
+    exFormRefreshTimedOptions();
 }
 
 function exFormUnitChanged() {
@@ -1019,6 +1040,49 @@ function exFormUnitChanged() {
     if (dSec) dSec.style.display = isDistance ? '' : 'none';
     if (tSec) tSec.style.display = isTimed ? '' : 'none';
     exFormUpdateTargetLabel();
+    exFormRefreshAutoSeq();
+}
+
+// Called when the Phase select changes. "No logging" (for timed-isotonic
+// exercises) is only valid in Warmup/Cooldown — the Work phase always
+// needs reps/distance to compute Work/Power. Hide the option in Work,
+// and fall back to "Reps" if it was selected.
+function exFormRefreshTimedOptions() {
+    const phaseVal = document.getElementById('ef-phase')?.value || 'work';
+    const noneOpt  = document.getElementById('ef-timed-none-opt');
+    if (noneOpt) noneOpt.style.display = (phaseVal !== 'work') ? '' : 'none';
+
+    if (phaseVal === 'work') {
+        const noneRadio = document.querySelector('input[name="ef-timed-input"][value="none"]');
+        if (noneRadio && noneRadio.checked) {
+            const repsRadio = document.querySelector('input[name="ef-timed-input"][value="reps"]');
+            if (repsRadio) repsRadio.checked = true;
+        }
+    }
+    exFormRefreshAutoSeq();
+}
+
+function exFormPhaseChanged() {
+    exFormRefreshTimedOptions();
+}
+
+function exFormTimedInputChanged() {
+    exFormRefreshAutoSeq();
+}
+
+// Auto-sequence is available for isometric exercises (always), and for
+// timed-isotonic exercises in Warmup/Cooldown when "None" logging is chosen.
+function exFormRefreshAutoSeq() {
+    const autoSeqSec = document.getElementById('ef-autoseq-section');
+    if (!autoSeqSec) return;
+    const typeVal  = document.querySelector('input[name="ef-type"]:checked')?.value || 'isotonic';
+    const phaseVal = document.getElementById('ef-phase')?.value || 'work';
+    const unitVal  = document.getElementById('ef-unit')?.value || 'reps';
+    const timedInputVal = document.querySelector('input[name="ef-timed-input"]:checked')?.value || 'reps';
+    const isTimedSet = typeVal !== 'isometric' && (unitVal === 'seconds' || unitVal === 'minutes');
+    const show = typeVal === 'isometric'
+        || (isTimedSet && phaseVal !== 'work' && timedInputVal === 'none');
+    autoSeqSec.style.display = show ? '' : 'none';
 }
 
 function exFormUpdateTargetLabel() {
@@ -1065,13 +1129,19 @@ function exFormSave() {
         : (document.getElementById('ef-unit')?.value || 'reps');
     const target   = parseInt(document.getElementById('ef-target')?.value) || 10;
     const timedInputEl = document.querySelector('input[name="ef-timed-input"]:checked');
-    const timedInput   = timedInputEl ? timedInputEl.value : 'reps';
+    let timedInput   = timedInputEl ? timedInputEl.value : 'reps';
+    // Safety net: "None" logging is only valid for Warmup/Cooldown timed-isotonic sets.
+    if (timedInput === 'none' && (typeVal === 'isometric' || phaseVal === 'work')) timedInput = 'reps';
     const sets          = parseInt(document.getElementById('ef-sets')?.value) || 3;
     const setRestSec    = parseInt(document.getElementById('ef-set-rest')?.value) ?? 60;
     const exerciseRestSec = parseInt(document.getElementById('ef-ex-rest')?.value) ?? 90;
-    // autoSequence only meaningful for isometric; always false for other types
+    // Auto-sequence is meaningful for isometric exercises (always), and for
+    // timed-isotonic Warmup/Cooldown exercises where the user logs nothing.
+    const isTimedSet  = typeVal !== 'isometric' && (unit === 'seconds' || unit === 'minutes');
     const autoSeqEl   = document.querySelector('input[name="ef-autoseq"]:checked');
-    const autoSequence = typeVal === 'isometric' && autoSeqEl?.value === 'on';
+    const autoSeqAllowed = typeVal === 'isometric'
+        || (isTimedSet && phaseVal !== 'work' && timedInput === 'none');
+    const autoSequence = autoSeqAllowed && autoSeqEl?.value === 'on';
 
     const exObj = {
         name, type: typeVal, phase: phaseVal,
@@ -1747,7 +1817,13 @@ function onCountdownComplete() {
     ex.setTimes[setIdx] = setTimeSec;
     setStartTime = null;
 
-    if (ex.type === 'isometric' && ex.autoSequence && currentSet < ex.sets) {
+    // Timed-isotonic sets where the user logs nothing (Warmup/Cooldown only)
+    // can also auto-sequence, same as isometric.
+    const isTimedNoneIso = ex.type !== 'isometric'
+        && (ex.unit === 'seconds' || ex.unit === 'minutes')
+        && ex.timedInput === 'none';
+
+    if ((ex.type === 'isometric' || isTimedNoneIso) && ex.autoSequence && currentSet < ex.sets) {
         // Auto-sequence: skip waiting-input and go straight into next set's
         // rest-then-active cycle. nextSet() will increment currentSet and
         // call startSetRestThenActive() — but it also tries to read DOM
@@ -1760,7 +1836,8 @@ function onCountdownComplete() {
         updateHudTimerDisplay();
         renderExercise();
     } else {
-        // Timed isotonic: need user to log reps or distance
+        // Timed isotonic: need user to log reps/distance (or, if "None" is
+        // set, just confirm and tap Next Set — handled in renderExercise())
         timerMode = 'waiting-input';
         updateHudTimerDisplay();
         renderExercise();
@@ -1788,7 +1865,8 @@ function nextSet() {
     }
 
     // For timed-isotonic (waiting-input), save the reps/distance the user entered
-    if (ex.type !== 'isometric' && (ex.unit === 'seconds' || ex.unit === 'minutes')) {
+    // — skipped entirely when "None" logging is selected (no input field is shown)
+    if (ex.type !== 'isometric' && (ex.unit === 'seconds' || ex.unit === 'minutes') && ex.timedInput !== 'none') {
         const inputVal = parseFloat(document.getElementById('timed-user-input')?.value) || 0;
         ex.userInputs[setIdx] = inputVal;
     }
@@ -1907,9 +1985,13 @@ function renderExercise() {
     } else if (ex.unit === 'reps') {
         goalText = `Target: ${ex.target} reps`;
     } else if (ex.unit === 'seconds') {
-        goalText = `Timed set: ${ex.target}s — log ${ex.timedInput === 'distance' ? 'distance' : 'reps'} after`;
+        goalText = ex.timedInput === 'none'
+            ? `Timed set: ${ex.target}s — no logging`
+            : `Timed set: ${ex.target}s — log ${ex.timedInput === 'distance' ? 'distance' : 'reps'} after`;
     } else if (ex.unit === 'minutes') {
-        goalText = `Timed set: ${ex.target} min — log ${ex.timedInput === 'distance' ? 'distance' : 'reps'} after`;
+        goalText = ex.timedInput === 'none'
+            ? `Timed set: ${ex.target} min — no logging`
+            : `Timed set: ${ex.target} min — log ${ex.timedInput === 'distance' ? 'distance' : 'reps'} after`;
     } else if (ex.unit === 'meters') {
         goalText = `Distance: ${ex.distanceM || ex.target}m`;
     }
@@ -1918,9 +2000,11 @@ function renderExercise() {
     const phaseBadgeMap = { warmup: '🌡 Warmup', work: '💪 Work', cooldown: '❄️ Cooldown' };
     const phaseBadge = phaseBadgeMap[ex.phase || 'work'] || '';
 
-    // Timed-isotonic input (shown in waiting-input mode)
-    const needsTimedInput = timerMode === 'waiting-input' && ex.type !== 'isometric'
-                            && (ex.unit === 'seconds' || ex.unit === 'minutes');
+    // Timed-isotonic input (shown in waiting-input mode) — not shown when
+    // "None" logging is selected, since there's nothing to log
+    const isTimedIsotonic = ex.type !== 'isometric' && (ex.unit === 'seconds' || ex.unit === 'minutes');
+    const needsTimedInput = timerMode === 'waiting-input' && isTimedIsotonic && ex.timedInput !== 'none';
+    const needsTimedNoneConfirm = timerMode === 'waiting-input' && isTimedIsotonic && ex.timedInput === 'none';
     const timedInputLabel = ex.timedInput === 'distance'
         ? `Distance completed (${userSettings.weightUnit === 'lb' ? 'ft' : 'm'})`
         : 'Reps completed';
@@ -1935,6 +2019,16 @@ function renderExercise() {
                        value="${ex.userInputs[setIdx] || ''}" placeholder="0" onfocus="this.select()">
                </label>
            </div>`
+        : '';
+
+    // Timed-isotonic with "None" logging: just confirm weight and tap next
+    const timedNoneWaitingHTML = needsTimedNoneConfirm
+        ? `<p class="timed-input-label">✅ Set complete! Update added weight, then tap Next Set.</p>`
+        : '';
+
+    // Isometric waiting-input: just confirm weight and tap next
+    const isoWaitingHTML = (timerMode === 'waiting-input' && ex.type === 'isometric')
+        ? `<p class="timed-input-label">✅ Hold complete! Update added weight, then tap Next Set.</p>`
         : '';
 
     // Previous accomplishment
@@ -1991,7 +2085,7 @@ function completeWorkout(silent = false) {
             const setTimeSec = setStartTime ? Math.round((Date.now() - setStartTime) / 1000) : timerElapsed;
             lastEx.setTimes[setIdx] = setTimeSec;
         }
-        if (lastEx.type !== 'isometric' && (lastEx.unit === 'seconds' || lastEx.unit === 'minutes')) {
+        if (lastEx.type !== 'isometric' && (lastEx.unit === 'seconds' || lastEx.unit === 'minutes') && lastEx.timedInput !== 'none') {
             lastEx.userInputs[setIdx] = parseFloat(document.getElementById('timed-user-input')?.value) || 0;
         }
 
