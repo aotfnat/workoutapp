@@ -1,7 +1,6 @@
 // exercise-library.js
-// Version 9.8
-// SOC: Added CSV export/import for the user's custom exercise library
-// (buttons live in the Plan tab, alongside the workout plan CSV backup).
+// Version 9.9
+// SOC: added libraryUpdateCustomNotes() so custom exercise notes can be edited from the UI
 // ─────────────────────────────────────────────────────────────────────────────
 // Common exercise library with biomechanical defaults.
 //
@@ -700,6 +699,21 @@ function libraryDeleteCustom(name) {
     return true;
 }
 
+/**
+ * Update just the notes field of an existing custom exercise by name (case-insensitive).
+ * Returns true if updated, false if not found. Built-in library entries cannot be
+ * edited this way — their notes are fixed biomechanical references.
+ */
+function libraryUpdateCustomNotes(name, notes) {
+    const q = name.trim().toLowerCase();
+    const custom = loadCustomExercises();
+    const idx = custom.findIndex(e => e.name.toLowerCase() === q);
+    if (idx < 0) return false;
+    custom[idx] = { ...custom[idx], notes };
+    saveCustomExercises(custom);
+    return true;
+}
+
 // ── Library lookup helpers ────────────────────────────────────────────────────
 
 /**
@@ -747,76 +761,4 @@ function librarySearch(query, category) {
         if (rd !== 0) return rd;
         return a.name.localeCompare(b.name);
     });
-}
-
-// ── Custom library CSV backup/restore ─────────────────────────────────────────
-// Exports/imports ONLY the user's custom exercises (built-in library entries
-// are never included, since they ship with the app and can't be edited).
-// Buttons live in the Plan tab, alongside the workout plan CSV backup.
-const CUSTOM_LIBRARY_CSV_HEADER = 'name,category,type,bodyWeightPct,heightPct,distanceM,unit,notes';
-
-function exportCustomLibraryCSV() {
-    const custom = loadCustomExercises();
-    if (custom.length === 0) {
-        alert('Nothing to export — you have no custom exercises yet.');
-        return;
-    }
-    const rows = [CUSTOM_LIBRARY_CSV_HEADER];
-    custom.forEach(e => {
-        rows.push([
-            csvEscape(e.name),
-            csvEscape(e.category      ?? 'custom'),
-            csvEscape(e.type          ?? 'isotonic'),
-            csvEscape(e.bodyWeightPct ?? 0),
-            csvEscape(e.heightPct     ?? ''),
-            csvEscape(e.distanceM     ?? ''),
-            csvEscape(e.unit          ?? 'reps'),
-            csvEscape(e.notes         ?? '')
-        ].join(','));
-    });
-    const csvContent = rows.join('\n');
-    const dateStr = new Date().toISOString().slice(0, 10);
-    triggerCSVDownload(csvContent, `custom-exercise-library-${dateStr}.csv`);
-}
-
-function importCustomLibraryCSV(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-    event.target.value = '';
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        try {
-            const text  = e.target.result;
-            const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
-            if (lines.length < 2) { alert('Import failed: empty file.'); return; }
-            const header = lines[0].trim().toLowerCase();
-            if (!header.startsWith('name,category,type')) {
-                alert('Import failed: unexpected header.\nExpected: ' + CUSTOM_LIBRARY_CSV_HEADER);
-                return;
-            }
-            let imported = 0;
-            lines.slice(1).forEach(line => {
-                const cols = parseCSVLine(line);
-                const name = cols[0]?.trim();
-                if (!name) return;
-                const category     = cols[1]?.trim() || 'custom';
-                const type         = cols[2]?.trim() || 'isotonic';
-                const bodyWeightPct = parseFloat(cols[3]) || 0;
-                const hRaw = cols[4]?.trim();
-                const heightPct = (hRaw !== undefined && hRaw !== '') ? parseFloat(hRaw) : null;
-                const dRaw = cols[5]?.trim();
-                const distanceM = (dRaw !== undefined && dRaw !== '') ? parseFloat(dRaw) : null;
-                const unit  = cols[6]?.trim() || 'reps';
-                const notes = cols[7]?.trim() || 'Custom exercise';
-                libraryAddCustom({ name, category, type, bodyWeightPct, heightPct, distanceM, unit, notes });
-                imported++;
-            });
-            if (imported === 0) { alert('Import failed: no exercises found.'); return; }
-            if (typeof renderCustomLibraryList === 'function') renderCustomLibraryList();
-            alert(`✅ Imported ${imported} custom exercise(s) successfully!`);
-        } catch (err) {
-            alert('Import failed: ' + err.message);
-        }
-    };
-    reader.readAsText(file);
 }

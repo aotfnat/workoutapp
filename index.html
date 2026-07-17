@@ -1,5 +1,5 @@
 <!-- index.html Workout App -->
-<!-- Version 9.8, SOC: removed redundant Save Plan button (plan already autosaves on every add/edit); added Custom Exercise Library export/import buttons to the Plan tab -->
+<!-- Version 9.9, SOC: added Notes textarea to the Settings custom exercise library form -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -36,17 +36,12 @@
             <h2><button class="section-menu-btn" onclick="toggleMenu()">☰</button> 📋 Plan</h2>
             <div id="weekly-plan"></div>
             <button onclick="addWorkout()">＋ Add Workout</button>
+            <button onclick="savePlanWithAlert()">💾 Save Plan</button>
             <div class="backup-row">
                 <button class="backup-btn export-btn" onclick="exportPlanCSV()">📤 Export to CSV</button>
                 <button class="backup-btn import-btn" onclick="document.getElementById('csv-import-input').click()">📥 Import CSV</button>
             </div>
             <input type="file" id="csv-import-input" accept=".csv" style="display:none" onchange="importPlanCSV(event)">
-            <h3 style="margin:20px 0 8px;font-size:15px;font-weight:700;color:#1c1c1e;">★ Custom Exercise Library Backup</h3>
-            <div class="backup-row">
-                <button class="backup-btn export-btn" onclick="exportCustomLibraryCSV()">📤 Export Library</button>
-                <button class="backup-btn import-btn" onclick="document.getElementById('custom-library-import-input').click()">📥 Import Library</button>
-            </div>
-            <input type="file" id="custom-library-import-input" accept=".csv" style="display:none" onchange="importCustomLibraryCSV(event)">
         </div>
 
         <!-- WORKOUT -->
@@ -182,6 +177,11 @@
                                 <option value="meters">Meters</option>
                             </select>
                         </div>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:6px;">
+                        <label class="ex-form-label" style="color:#3a3a3c;">Notes (optional)</label>
+                        <textarea id="cl-notes" rows="2" placeholder="Add your own notes about this exercise…"
+                            style="width:100%;padding:10px;font-size:14px;border:1px solid #d1d1d6;border-radius:10px;background:#fff;color:#1c1c1e;resize:vertical;font-family:inherit;"></textarea>
                     </div>
                     <button onclick="saveCustomLibraryFromSettings()" style="background:#ff9f0a;margin-top:4px;">★ Save to Library</button>
                 </div>

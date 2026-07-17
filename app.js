@@ -1,6 +1,7 @@
 // app.js
-//Version 9.8.1
-//SOC: Restored Timed isotonic auto-sequencing
+//Version 9.9
+//SOC: Added ⓘ info button to reveal exercise notes in library search results and the
+//     Settings custom exercise list; notes are editable in place for custom exercises
 
 
 // ── Schema version guard ─────────────────────────────────────────
@@ -913,20 +914,57 @@ function exFormLibrarySearch(query) {
         resultsEl.innerHTML = `<p style="color:#636366;font-size:13px;margin:4px 0;">No matches. Fill in the fields manually or <button class="ex-modal-next" style="padding:4px 10px;font-size:13px;" onclick="saveCurrentAsCustom()">Save as Custom ★</button></p>`;
         return;
     }
-    resultsEl.innerHTML = matches.map(m => {
+    resultsEl.innerHTML = matches.map((m, idx) => {
         const customBadge = m.custom ? ' <span style="color:#ff9f0a;font-size:10px;">★ Custom</span>' : '';
         const deleteBtnHtml = m.custom
             ? `<button onclick="event.stopPropagation();deleteCustomLibraryEntry('${escHtml(m.name)}')" style="background:#ff453a;color:#fff;font-size:11px;padding:2px 7px;border:none;border-radius:6px;margin:0;cursor:pointer;flex-shrink:0;">✕</button>`
             : '';
+        const noteId = `lib-note-${idx}`;
+        // Built-in library notes are fixed biomechanical references — read-only.
+        // Custom exercise notes are user-owned — editable in place.
+        const notesBody = m.custom
+            ? `<div id="${noteId}" style="display:none;margin-top:4px;">
+                   <textarea id="${noteId}-ta" class="ex-text-input" rows="2"
+                       style="font-size:13px;min-height:auto;padding:8px;"
+                       placeholder="Add your own notes…"
+                       onclick="event.stopPropagation()">${escHtml(m.notes || '')}</textarea>
+                   <button onclick="event.stopPropagation();saveLibNoteEdit('${escHtml(m.name)}','${noteId}')"
+                       style="background:#30d158;color:#fff;font-size:12px;padding:4px 10px;border:none;border-radius:8px;margin:4px 0 0;cursor:pointer;">💾 Save Note</button>
+               </div>`
+            : `<div id="${noteId}" style="display:none;margin-top:4px;">
+                   <p class="ex-form-hint" style="margin:0;">${escHtml(m.notes || 'No notes available.')}</p>
+               </div>`;
         return `
-        <div style="display:flex;align-items:center;gap:6px;">
-            <button class="ex-lib-result-btn" style="flex:1;" onclick="exFormApplyLibraryEntry(${JSON.stringify(m).replace(/"/g, '&quot;')})">
-                <span class="ex-lib-name">${escHtml(m.name)}${customBadge}</span>
-                <span class="ex-lib-meta">${m.category} · BW ${Math.round(m.bodyWeightPct * 100)}%${m.heightPct !== null && m.heightPct !== undefined ? ` · H ${Math.round(m.heightPct * 100)}%` : ''}</span>
-            </button>
-            ${deleteBtnHtml}
+        <div style="display:flex;flex-direction:column;">
+            <div style="display:flex;align-items:center;gap:6px;">
+                <button class="ex-lib-result-btn" style="flex:1;" onclick="exFormApplyLibraryEntry(${JSON.stringify(m).replace(/"/g, '&quot;')})">
+                    <span class="ex-lib-name">${escHtml(m.name)}${customBadge}</span>
+                    <span class="ex-lib-meta">${m.category} · BW ${Math.round(m.bodyWeightPct * 100)}%${m.heightPct !== null && m.heightPct !== undefined ? ` · H ${Math.round(m.heightPct * 100)}%` : ''}</span>
+                </button>
+                <button class="icon-btn" title="Show notes" onclick="event.stopPropagation();toggleLibNotes('${noteId}')">ⓘ</button>
+                ${deleteBtnHtml}
+            </div>
+            ${notesBody}
         </div>`;
     }).join('');
+}
+
+// Toggle visibility of a notes panel (library search results or custom library list)
+function toggleLibNotes(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.style.display = (el.style.display === 'none' || !el.style.display) ? 'block' : 'none';
+}
+
+// Save an edited notes textarea back to a custom library entry, then refresh
+// whichever view(s) are currently showing it.
+function saveLibNoteEdit(name, noteId) {
+    const ta = document.getElementById(noteId + '-ta');
+    if (!ta) return;
+    if (typeof libraryUpdateCustomNotes === 'function') libraryUpdateCustomNotes(name, ta.value);
+    const nameEl = document.getElementById('ef-name');
+    if (nameEl) exFormLibrarySearch(nameEl.value);
+    renderCustomLibraryList();
 }
 
 function exFormApplyLibraryEntry(entry) {
@@ -2945,15 +2983,28 @@ function renderCustomLibraryList() {
     }
     listEl.innerHTML = `
         <p style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#8e8e93;margin:0 0 8px;">Your Custom Exercises</p>
-        ${custom.map(e => `
-            <div style="display:flex;align-items:center;justify-content:space-between;background:#f2f2f7;border-radius:10px;padding:10px 12px;margin-bottom:6px;">
-                <div>
-                    <span style="font-size:14px;font-weight:600;color:#1c1c1e;">${escHtml(e.name)}</span>
-                    <span style="font-size:12px;color:#636366;margin-left:6px;">${e.category} · BW ${Math.round((e.bodyWeightPct||0)*100)}%${e.heightPct != null ? ` · H ${Math.round(e.heightPct*100)}%` : ''}</span>
+        ${custom.map((e, idx) => {
+            const noteId = `cl-note-${idx}`;
+            return `
+            <div style="background:#f2f2f7;border-radius:10px;padding:10px 12px;margin-bottom:6px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+                    <div style="min-width:0;">
+                        <span style="font-size:14px;font-weight:600;color:#1c1c1e;">${escHtml(e.name)}</span>
+                        <span style="font-size:12px;color:#636366;margin-left:6px;">${e.category} · BW ${Math.round((e.bodyWeightPct||0)*100)}%${e.heightPct != null ? ` · H ${Math.round(e.heightPct*100)}%` : ''}</span>
+                    </div>
+                    <div style="display:flex;gap:4px;flex-shrink:0;">
+                        <button class="icon-btn" title="Show/edit notes" onclick="toggleLibNotes('${noteId}')">ⓘ</button>
+                        <button onclick="deleteCustomLibraryEntry('${escHtml(e.name)}')" style="background:#ff453a;color:#fff;font-size:12px;padding:4px 10px;border:none;border-radius:8px;margin:0;cursor:pointer;">✕</button>
+                    </div>
                 </div>
-                <button onclick="deleteCustomLibraryEntry('${escHtml(e.name)}')" style="background:#ff453a;color:#fff;font-size:12px;padding:4px 10px;border:none;border-radius:8px;margin:0;cursor:pointer;">✕</button>
-            </div>
-        `).join('')}
+                <div id="${noteId}" style="display:none;margin-top:8px;">
+                    <textarea id="${noteId}-ta" rows="2" placeholder="Add your own notes…"
+                        style="width:100%;padding:8px;font-size:13px;border:1px solid #d1d1d6;border-radius:8px;background:#fff;color:#1c1c1e;resize:vertical;">${escHtml(e.notes || '')}</textarea>
+                    <button onclick="saveLibNoteEdit('${escHtml(e.name)}','${noteId}')"
+                        style="background:#30d158;color:#fff;font-size:12px;padding:4px 10px;border:none;border-radius:8px;margin:6px 0 0;cursor:pointer;">💾 Save Note</button>
+                </div>
+            </div>`;
+        }).join('')}
     `;
 }
 
@@ -2966,14 +3017,16 @@ function saveCustomLibraryFromSettings() {
     const bwRaw    = parseFloat(document.getElementById('cl-bwpct')?.value);
     const hRaw     = document.getElementById('cl-hpct')?.value;
     const unit     = document.getElementById('cl-unit')?.value  || 'reps';
+    const notesRaw = document.getElementById('cl-notes')?.value.trim() || '';
     const bwPct    = isNaN(bwRaw) ? 0 : Math.min(Math.max(bwRaw / 100, 0), 1);
     const hPct     = (hRaw !== '' && hRaw !== undefined && !isNaN(parseFloat(hRaw))) ? parseFloat(hRaw) / 100 : null;
 
-    libraryAddCustom({ name, category: cat, type, bodyWeightPct: bwPct, heightPct: hPct, distanceM: null, unit, notes: 'Custom exercise' });
+    libraryAddCustom({ name, category: cat, type, bodyWeightPct: bwPct, heightPct: hPct, distanceM: null, unit, notes: notesRaw || 'Custom exercise' });
     // Clear form
     document.getElementById('cl-name').value  = '';
     document.getElementById('cl-bwpct').value = '0';
     document.getElementById('cl-hpct').value  = '';
+    document.getElementById('cl-notes').value = '';
     alert(`✅ "${name}" added to your custom library!`);
     renderCustomLibraryList();
 }

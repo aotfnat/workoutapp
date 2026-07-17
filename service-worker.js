@@ -1,6 +1,6 @@
 // service-worker.js
-// Version 9.8.1 — add back in timed isotonic auto sequence
-const CACHE_NAME = 'fitness-app-v9.8.1';
+// Version 9.9 — cache bump for exercise notes info button feature
+const CACHE_NAME = 'fitness-app-v9.9';
 
 const BASE = self.location.pathname.replace(/\/service-worker\.js$/, '');
 const urlsToCache = [
