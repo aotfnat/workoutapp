@@ -1,4 +1,7 @@
 /* ── styles.css ── iPhone-optimised PWA ──────────────────────────── */
+/* Version 9.10; SOC: Progress chart pagination arrows, custom clickable exercise
+   tooltip, progress-log card highlight animation, and Settings checkbox row style
+   added for the Work/Power chart readability overhaul */
 
 /* ── Reset & base ──────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
@@ -1807,4 +1810,102 @@ body:has(#workout-section.active) #floating-menu-btn {
     width: 80px;
     text-align: center;
     vertical-align: middle;
+}
+
+/* ── Progress chart pagination arrows ────────────────────────────── */
+.prog-chart-nav-btn {
+    position: absolute;
+    bottom: 8px;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    margin: 0;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.55);
+    color: #fff;
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 5;
+    -webkit-tap-highlight-color: transparent;
+}
+.prog-chart-nav-btn:active { opacity: 0.7; }
+.prog-chart-nav-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+.prog-chart-nav-left  { left: 8px; }
+.prog-chart-nav-right { right: 8px; }
+
+/* ── Exercise chart custom tooltip (clickable date) ──────────────── */
+.prog-chart-tooltip {
+    position: absolute;
+    left: 0;
+    top: 0;
+    background: #1c1c1e;
+    color: #fff;
+    border-radius: 10px;
+    padding: 8px 10px;
+    font-size: 12px;
+    line-height: 1.6;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.1s;
+    z-index: 6;
+    max-width: 220px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+}
+.prog-tt-date {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    color: #0a84ff;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 0 0 4px;
+    margin: 0 0 4px;
+    border-bottom: 1px solid #3a3a3c;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+.prog-tt-date:active { opacity: 0.7; }
+.prog-tt-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+.prog-tt-swatch {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+/* ── Progress log card highlight (scrolled-to from chart tap) ────── */
+@keyframes progCardHighlight {
+    0%, 100% { background: #fff; }
+    30% { background: rgba(10,132,255,0.18); }
+}
+.prog-card-highlight {
+    animation: progCardHighlight 2s ease;
+}
+
+/* ── Settings checkbox row (e.g. Show Trend Lines toggle) ────────── */
+.settings-checkbox-row {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center;
+    justify-content: space-between;
+}
+.settings-checkbox-row input[type="checkbox"] {
+    width: 22px;
+    height: 22px;
+    flex: 0 0 auto;
+    accent-color: #30d158;
 }

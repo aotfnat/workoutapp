@@ -1,5 +1,5 @@
 <!-- index.html Workout App -->
-<!-- Version 9.9, SOC: added Notes textarea to the Settings custom exercise library form -->
+<!-- Version 9.10, SOC: added "Show Trend Lines on Progress Charts" toggle to Settings tab -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -127,6 +127,10 @@
                     </select>
                 </label>
                 <p class="settings-hint">Body weight is used to calculate the load on exercises. Height is used to calculate distance traveled per rep for repetitive movements.</p>
+                <label class="settings-checkbox-row">
+                    <span>📈 Show Trend Lines on Progress Charts</span>
+                    <input type="checkbox" id="show-trend-lines">
+                </label>
                 <button onclick="saveSettings()">💾 Save Settings</button>
             </div>
 

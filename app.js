@@ -1,7 +1,11 @@
 // app.js
-//Version 9.9
-//SOC: Added ⓘ info button to reveal exercise notes in library search results and the
-//     Settings custom exercise list; notes are editable in place for custom exercises
+//Version 9.10
+//SOC: Progress chart overhaul — paginate to last 30 workouts with back/forward
+//     nav arrows, scale axis tick labels (with a ×1,000/×1,000,000 suffix in
+//     the title) to cut down on zeros, added a clickable custom tooltip on the
+//     exercise chart so tapping the date auto-scrolls to that session's log
+//     card, and added an optional linear-regression trend line for Work and
+//     Power (toggled from Settings)
 
 
 // ── Schema version guard ─────────────────────────────────────────
@@ -30,6 +34,7 @@ let userSettings = JSON.parse(localStorage.getItem('userSettings'))
         heightUnit: 'in'
     };
 if (!userSettings.heightUnit) userSettings.heightUnit = 'in';
+if (userSettings.showTrendLines === undefined) userSettings.showTrendLines = false;
 
 // ── Body-weight helpers ──────────────────────────────────────────
 function getUserWeightInWorkingUnit() {
@@ -2649,6 +2654,18 @@ function importProgressCSV(event) {
 let chartWorkout  = null;  // Chart.js instance for workout chart
 let chartExercise = null;  // Chart.js instance for exercise chart
 
+// Pagination — each chart shows CHART_PAGE_SIZE sessions per page, with
+// page 0 always being the most recent sessions. Older pages are reached
+// via the ‹ nav arrow (bottom-left), newer via › (bottom-right).
+const CHART_PAGE_SIZE  = 30;
+let workoutChartPage   = 0;
+let exerciseChartPage  = 0;
+
+// Windowed point metadata (date/workoutName per data index) for whatever
+// page of the exercise chart is currently rendered — used by the custom
+// clickable tooltip to know which progress-log card to scroll to.
+let _exerciseChartPoints = [];
+
 // Chart.js's built-in responsive handling relies on a window 'resize' event,
 // but iOS Safari's orientation change frequently fires 'resize' before the
 // layout has actually settled into the new orientation's dimensions (or,
@@ -2685,14 +2702,16 @@ function loadProgress() {
 function renderProgressLog() {
     const logDiv = document.getElementById('progress-log');
     logDiv.innerHTML = '';
-    [...progressLogs].reverse().forEach(log => {
+    // Keep each card's original index into progressLogs (as a DOM id) so the
+    // exercise chart's tooltip can scroll straight to a specific session.
+    progressLogs.map((log, idx) => ({ log, idx })).reverse().forEach(({ log, idx }) => {
         const wu = log.weightUnit || userSettings.weightUnit;
         const unit = isMetric() ? 'J' : 'ft-lbf';
         const workLine = log.workoutTotalWork != null
             ? `<p class="prog-work-summary">💪 Work: <strong>${log.workoutTotalWork.toFixed(0)} ${unit}</strong>${log.workoutTotalPower != null ? `&nbsp;&nbsp;⚡ Power: <strong>${log.workoutTotalPower.toFixed(1)} ${unit}/s</strong>` : ''}</p>`
             : '';
         logDiv.innerHTML += `
-            <div>
+            <div id="progress-log-entry-${idx}">
                 <h4>${new Date(log.date).toLocaleDateString()} – ${escHtml(log.workoutName || log.day || '')} – ${formatTime(log.duration)}</h4>
                 ${workLine}
                 ${(log.exercises || []).filter(ex => ex.phase === 'work').map(ex => {
@@ -2752,7 +2771,7 @@ function renderProgressCharts() {
         <div class="prog-chart-block">
             <div class="prog-chart-header">
                 <span class="prog-chart-title">📊 Workout: Work &amp; Power over Time</span>
-                <select id="prog-workout-select" class="prog-select" onchange="renderProgressCharts()">
+                <select id="prog-workout-select" class="prog-select" onchange="onProgWorkoutSelectChange()">
                     <option value="__total__" ${woSel === '__total__' ? 'selected' : ''}>All Workouts (Total)</option>
                     ${workoutNames.map(n => `<option value="${escHtml(n)}" ${n === woSel ? 'selected' : ''}>${escHtml(n)}</option>`).join('')}
                     ${workoutNames.length === 0 ? '<option disabled>No workouts logged</option>' : ''}
@@ -2760,18 +2779,23 @@ function renderProgressCharts() {
             </div>
             <div class="prog-chart-wrap">
                 <canvas id="chart-workout" height="220"></canvas>
+                <button id="chart-workout-nav-back" class="prog-chart-nav-btn prog-chart-nav-left" onclick="progWorkoutChartNav(1)" style="display:none;" title="Older sessions">‹</button>
+                <button id="chart-workout-nav-fwd"  class="prog-chart-nav-btn prog-chart-nav-right" onclick="progWorkoutChartNav(-1)" style="display:none;" title="Newer sessions">›</button>
             </div>
         </div>
         <div class="prog-chart-block">
             <div class="prog-chart-header">
                 <span class="prog-chart-title">🏋️ Exercise: Work &amp; Power over Time</span>
-                <select id="prog-exercise-select" class="prog-select" onchange="renderProgressCharts()">
+                <select id="prog-exercise-select" class="prog-select" onchange="onProgExerciseSelectChange()">
                     ${exerciseNames.map(n => `<option value="${escHtml(n)}" ${n === exSel ? 'selected' : ''}>${escHtml(n)}</option>`).join('')}
                     ${exerciseNames.length === 0 ? '<option>No exercises logged</option>' : ''}
                 </select>
             </div>
             <div class="prog-chart-wrap">
                 <canvas id="chart-exercise" height="220"></canvas>
+                <button id="chart-exercise-nav-back" class="prog-chart-nav-btn prog-chart-nav-left" onclick="progExerciseChartNav(1)" style="display:none;" title="Older sessions">‹</button>
+                <button id="chart-exercise-nav-fwd"  class="prog-chart-nav-btn prog-chart-nav-right" onclick="progExerciseChartNav(-1)" style="display:none;" title="Newer sessions">›</button>
+                <div id="chart-exercise-tooltip" class="prog-chart-tooltip"></div>
             </div>
         </div>
     `;
@@ -2785,56 +2809,85 @@ function renderWorkoutChart(workoutName) {
     if (!canvas) return;
 
     const unit = isMetric() ? 'J' : 'ft-lbf';
-    let labels, workData, powerData;
+    let fullLabels, fullWork, fullPower, fullNames;
 
-    let workoutNamesForTooltip = [];
     if (workoutName === '__total__') {
         // All workouts chronologically — each log entry is one data point
         const filtered = progressLogs.filter(log => log.workoutTotalWork != null);
-        labels    = filtered.map(log => fmtDate(log.date));
-        workData  = filtered.map(log => +(log.workoutTotalWork || 0).toFixed(1));
-        powerData = filtered.map(log => log.workoutTotalPower != null ? +(log.workoutTotalPower).toFixed(2) : null);
-        workoutNamesForTooltip = filtered.map(log => log.workoutName || log.day || '');
+        fullLabels = filtered.map(log => fmtDate(log.date));
+        fullWork   = filtered.map(log => +(log.workoutTotalWork || 0).toFixed(1));
+        fullPower  = filtered.map(log => log.workoutTotalPower != null ? +(log.workoutTotalPower).toFixed(2) : null);
+        fullNames  = filtered.map(log => log.workoutName || log.day || '');
     } else {
         const filtered = progressLogs.filter(log =>
             (log.workoutName || log.day || '') === workoutName &&
             log.workoutTotalWork != null
         );
-        labels    = filtered.map(log => fmtDate(log.date));
-        workData  = filtered.map(log => +(log.workoutTotalWork || 0).toFixed(1));
-        powerData = filtered.map(log => log.workoutTotalPower != null ? +(log.workoutTotalPower).toFixed(2) : null);
+        fullLabels = filtered.map(log => fmtDate(log.date));
+        fullWork   = filtered.map(log => +(log.workoutTotalWork || 0).toFixed(1));
+        fullPower  = filtered.map(log => log.workoutTotalPower != null ? +(log.workoutTotalPower).toFixed(2) : null);
+        fullNames  = filtered.map(() => workoutName);
+    }
+
+    // Default view = most recent CHART_PAGE_SIZE sessions; nav arrows page
+    // through older/newer windows without re-fetching anything.
+    const { sliced, page, totalPages, hasOlder, hasNewer } = paginateChartData(
+        { labels: fullLabels, work: fullWork, power: fullPower, names: fullNames }, workoutChartPage
+    );
+    workoutChartPage = page;
+    const labels = sliced.labels, workData = sliced.work, powerData = sliced.power;
+    const workoutNamesForTooltip = sliced.names;
+
+    const backBtn = document.getElementById('chart-workout-nav-back');
+    const fwdBtn  = document.getElementById('chart-workout-nav-fwd');
+    if (backBtn) { backBtn.style.display = totalPages > 1 ? 'flex' : 'none'; backBtn.disabled = !hasOlder; }
+    if (fwdBtn)  { fwdBtn.style.display  = totalPages > 1 ? 'flex' : 'none'; fwdBtn.disabled  = !hasNewer; }
+
+    const workScale  = chooseAxisScale(workData);
+    const powerScale = chooseAxisScale(powerData);
+
+    const datasets = [
+        {
+            label: `Total Work (${unit})`,
+            data: workData,
+            borderColor: '#30d158',
+            backgroundColor: 'rgba(48,209,88,0.1)',
+            borderWidth: 2,
+            pointRadius: 4,
+            tension: 0.3,
+            yAxisID: 'yWork',
+            fill: true
+        },
+        {
+            label: `Avg Power (${unit}/s)`,
+            data: powerData,
+            borderColor: '#ff9f0a',
+            backgroundColor: 'rgba(255,159,10,0.08)',
+            borderWidth: 2,
+            pointRadius: 4,
+            tension: 0.3,
+            yAxisID: 'yPower',
+            spanGaps: true
+        }
+    ];
+
+    if (userSettings.showTrendLines) {
+        const workTrend  = computeTrendLine(workData);
+        const powerTrend = computeTrendLine(powerData);
+        if (workTrend) datasets.push({
+            label: 'Work Trend', data: workTrend, borderColor: '#1c8a41', borderWidth: 2,
+            borderDash: [6, 4], pointRadius: 0, tension: 0, yAxisID: 'yWork', fill: false
+        });
+        if (powerTrend) datasets.push({
+            label: 'Power Trend', data: powerTrend, borderColor: '#b36c00', borderWidth: 2,
+            borderDash: [6, 4], pointRadius: 0, tension: 0, yAxisID: 'yPower', fill: false
+        });
     }
 
     if (chartWorkout) chartWorkout.destroy();
     chartWorkout = new Chart(canvas.getContext('2d'), {
         type: 'line',
-        data: {
-            labels,
-            datasets: [
-                {
-                    label: `Total Work (${unit})`,
-                    data: workData,
-                    borderColor: '#30d158',
-                    backgroundColor: 'rgba(48,209,88,0.1)',
-                    borderWidth: 2,
-                    pointRadius: 4,
-                    tension: 0.3,
-                    yAxisID: 'yWork',
-                    fill: true
-                },
-                {
-                    label: `Avg Power (${unit}/s)`,
-                    data: powerData,
-                    borderColor: '#ff9f0a',
-                    backgroundColor: 'rgba(255,159,10,0.08)',
-                    borderWidth: 2,
-                    pointRadius: 4,
-                    tension: 0.3,
-                    yAxisID: 'yPower',
-                    spanGaps: true
-                }
-            ]
-        },
+        data: { labels, datasets },
         options: {
             responsive: true,
             interaction: { mode: 'index', intersect: false },
@@ -2854,8 +2907,14 @@ function renderWorkoutChart(workoutName) {
             },
             scales: {
                 x:      { ticks: { color: '#636366', font: { size: 10 }, maxRotation: 45 }, grid: { color: '#e5e5ea' } },
-                yWork:  { type: 'linear', position: 'left',  beginAtZero: true, ticks: { color: '#30d158' }, grid: { color: '#e5e5ea' }, title: { display: true, text: `Work (${unit})`, color: '#30d158' } },
-                yPower: { type: 'linear', position: 'right', beginAtZero: true, ticks: { color: '#ff9f0a' }, grid: { drawOnChartArea: false }, title: { display: true, text: `Power (${unit}/s)`, color: '#ff9f0a' } }
+                yWork:  { type: 'linear', position: 'left',  beginAtZero: true,
+                    ticks: { color: '#30d158', callback: v => (v / workScale.factor).toLocaleString() },
+                    grid: { color: '#e5e5ea' },
+                    title: { display: true, text: `Work (${unit})${workScale.suffix}`, color: '#30d158' } },
+                yPower: { type: 'linear', position: 'right', beginAtZero: true,
+                    ticks: { color: '#ff9f0a', callback: v => (v / powerScale.factor).toLocaleString() },
+                    grid: { drawOnChartArea: false },
+                    title: { display: true, text: `Power (${unit}/s)${powerScale.suffix}`, color: '#ff9f0a' } }
             }
         }
     });
@@ -2866,30 +2925,47 @@ function renderExerciseChart(exerciseName) {
     if (!canvas) return;
 
     // Gather per-exercise data points from all logs
-    const points = [];
+    const fullPoints = [];
     progressLogs.forEach(log => {
         const ex = (log.exercises || []).find(e =>
             e.name === exerciseName && (e.phase || 'work') === 'work'
         );
         if (!ex) return;
-        points.push({ date: fmtDate(log.date), ex });
+        fullPoints.push({ date: fmtDate(log.date), isoDate: log.date, workoutName: log.workoutName || log.day || '', ex });
     });
 
-    const labels    = points.map(p => p.date);
-    const isIso     = points.length > 0 && points[0].ex.isIsometric;
-    const unit      = isMetric() ? 'J' : 'ft-lbf';
+    const isIso = fullPoints.length > 0 && fullPoints[0].ex.isIsometric;
+    const unit  = isMetric() ? 'J' : 'ft-lbf';
 
-    const workData  = points.map(p =>
+    const fullLabels = fullPoints.map(p => p.date);
+    const fullWork = fullPoints.map(p =>
         isIso
             ? (p.ex.totalTension != null ? +p.ex.totalTension.toFixed(1) : null)
             : (p.ex.totalWork    != null ? +p.ex.totalWork.toFixed(1)    : null)
     );
-    const powerData = isIso ? null : points.map(p =>
-        p.ex.totalPower != null ? +p.ex.totalPower.toFixed(2) : null
+    const fullPower = fullPoints.map(p =>
+        isIso ? null : (p.ex.totalPower != null ? +p.ex.totalPower.toFixed(2) : null)
     );
+
+    // Default view = most recent CHART_PAGE_SIZE sessions; nav arrows page
+    // through older/newer windows without re-fetching anything.
+    const { sliced, page, totalPages, hasOlder, hasNewer } = paginateChartData(
+        { labels: fullLabels, work: fullWork, power: fullPower, points: fullPoints }, exerciseChartPage
+    );
+    exerciseChartPage = page;
+    const labels = sliced.labels, workData = sliced.work, powerData = sliced.power;
+    _exerciseChartPoints = sliced.points;   // used by the custom tooltip below
+
+    const backBtn = document.getElementById('chart-exercise-nav-back');
+    const fwdBtn  = document.getElementById('chart-exercise-nav-fwd');
+    if (backBtn) { backBtn.style.display = totalPages > 1 ? 'flex' : 'none'; backBtn.disabled = !hasOlder; }
+    if (fwdBtn)  { fwdBtn.style.display  = totalPages > 1 ? 'flex' : 'none'; fwdBtn.disabled  = !hasNewer; }
 
     const workLabel  = isIso ? `Tension Load (${unit}·s)` : `Total Work (${unit})`;
     const powerLabel = `Avg Power (${unit}/s)`;
+
+    const workScale  = chooseAxisScale(workData);
+    const powerScale = chooseAxisScale(powerData);
 
     const datasets = [
         {
@@ -2908,7 +2984,10 @@ function renderExerciseChart(exerciseName) {
 
     const scales = {
         x:     { ticks: { color: '#636366', font: { size: 10 }, maxRotation: 45 }, grid: { color: '#e5e5ea' } },
-        yWork: { type: 'linear', position: 'left', beginAtZero: true, ticks: { color: '#0a84ff' }, grid: { color: '#e5e5ea' }, title: { display: true, text: workLabel, color: '#0a84ff' } }
+        yWork: { type: 'linear', position: 'left', beginAtZero: true,
+            ticks: { color: '#0a84ff', callback: v => (v / workScale.factor).toLocaleString() },
+            grid: { color: '#e5e5ea' },
+            title: { display: true, text: `${workLabel}${workScale.suffix}`, color: '#0a84ff' } }
     };
 
     if (!isIso && powerData) {
@@ -2923,7 +3002,23 @@ function renderExerciseChart(exerciseName) {
             yAxisID: 'yPower',
             spanGaps: true
         });
-        scales.yPower = { type: 'linear', position: 'right', beginAtZero: true, ticks: { color: '#ff453a' }, grid: { drawOnChartArea: false }, title: { display: true, text: powerLabel, color: '#ff453a' } };
+        scales.yPower = { type: 'linear', position: 'right', beginAtZero: true,
+            ticks: { color: '#ff453a', callback: v => (v / powerScale.factor).toLocaleString() },
+            grid: { drawOnChartArea: false },
+            title: { display: true, text: `${powerLabel}${powerScale.suffix}`, color: '#ff453a' } };
+    }
+
+    if (userSettings.showTrendLines) {
+        const workTrend  = computeTrendLine(workData);
+        const powerTrend = isIso ? null : computeTrendLine(powerData);
+        if (workTrend) datasets.push({
+            label: 'Work Trend', data: workTrend, borderColor: '#005ecb', borderWidth: 2,
+            borderDash: [6, 4], pointRadius: 0, tension: 0, yAxisID: 'yWork', fill: false
+        });
+        if (powerTrend) datasets.push({
+            label: 'Power Trend', data: powerTrend, borderColor: '#a3291f', borderWidth: 2,
+            borderDash: [6, 4], pointRadius: 0, tension: 0, yAxisID: 'yPower', fill: false
+        });
     }
 
     if (chartExercise) chartExercise.destroy();
@@ -2935,13 +3030,63 @@ function renderExerciseChart(exerciseName) {
             interaction: { mode: 'index', intersect: false },
             plugins: {
                 legend: { labels: { color: '#1c1c1e', font: { size: 12 } } },
-                tooltip: { callbacks: {
-                    label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(1) : '—'}`
-                }}
+                // Chart.js's built-in tooltip is drawn on the canvas and can't
+                // contain a real clickable element. We want the date to be
+                // tappable (jump to that session's log card), so it's swapped
+                // for a custom HTML tooltip instead — see the handler below.
+                tooltip: { enabled: false, external: exerciseChartExternalTooltip }
             },
             scales
         }
     });
+}
+
+// Custom HTML tooltip for the exercise chart. Renders a small floating div
+// positioned over the canvas (rather than Chart.js's canvas-drawn tooltip)
+// so the date line can be a real, tappable button that scrolls to the
+// matching session card in the log below.
+function exerciseChartExternalTooltip(context) {
+    const { chart, tooltip } = context;
+    const el = document.getElementById('chart-exercise-tooltip');
+    if (!el) return;
+
+    if (!tooltip || tooltip.opacity === 0) {
+        el.style.opacity = '0';
+        el.style.pointerEvents = 'none';
+        return;
+    }
+
+    const idx   = tooltip.dataPoints?.[0]?.dataIndex;
+    const point = (idx != null) ? _exerciseChartPoints[idx] : null;
+
+    let html = '';
+    (tooltip.dataPoints || []).forEach(dp => {
+        html += `<div class="prog-tt-row"><span class="prog-tt-swatch" style="background:${dp.dataset.borderColor}"></span>${escHtml(dp.dataset.label)}: <strong>${dp.parsed.y != null ? dp.parsed.y.toFixed(1) : '—'}</strong></div>`;
+    });
+
+    if (point) {
+        const safeDate = String(point.isoDate).replace(/'/g, "\\'");
+        const safeName = String(point.workoutName).replace(/'/g, "\\'");
+        html = `<button class="prog-tt-date" onclick="scrollToProgressCard('${safeDate}', '${safeName}')">📅 ${escHtml(point.date)} — ${escHtml(point.workoutName)}</button>` + html;
+    }
+
+    el.innerHTML = html;
+    el.style.opacity = '1';
+    el.style.pointerEvents = 'auto';
+
+    const { offsetLeft: canvasLeft, offsetTop: canvasTop } = chart.canvas;
+    let left = canvasLeft + tooltip.caretX;
+    let top  = canvasTop + tooltip.caretY;
+
+    // Keep the tooltip inside the chart wrap horizontally, and above the caret
+    const wrapWidth = chart.canvas.parentNode.offsetWidth;
+    const ttWidth    = el.offsetWidth  || 180;
+    const ttHeight   = el.offsetHeight || 60;
+    left = Math.min(Math.max(left - ttWidth / 2, 4), wrapWidth - ttWidth - 4);
+    top  = Math.max(top - ttHeight - 12, 4);
+
+    el.style.left = left + 'px';
+    el.style.top  = top + 'px';
 }
 
 function getRandomColor() {
@@ -2960,6 +3105,105 @@ function fmtDate(isoStr) {
     return `${d.getMonth() + 1}/${d.getDate()}/${yy}`;
 }
 
+// ── Progress chart pagination ─────────────────────────────────────
+// Slices a set of parallel arrays down to one "page" of CHART_PAGE_SIZE
+// entries, where page 0 is always the most recent entries (chronological
+// arrays are oldest→newest, so page 0 is the tail end). Returns the
+// sliced arrays plus paging metadata so the nav arrows know when to show
+// and whether they're currently usable.
+function paginateChartData(arraysObj, page) {
+    const keys = Object.keys(arraysObj);
+    const n = keys.length ? (arraysObj[keys[0]] || []).length : 0;
+    const totalPages  = Math.max(1, Math.ceil(n / CHART_PAGE_SIZE));
+    const clampedPage = Math.min(Math.max(page, 0), totalPages - 1);
+    const end   = n - clampedPage * CHART_PAGE_SIZE;
+    const start = Math.max(0, end - CHART_PAGE_SIZE);
+    const sliced = {};
+    keys.forEach(k => { sliced[k] = (arraysObj[k] || []).slice(start, end); });
+    return { sliced, page: clampedPage, totalPages, hasOlder: start > 0, hasNewer: clampedPage > 0 };
+}
+
+// dir = 1 → older (back), dir = -1 → newer (forward)
+function progWorkoutChartNav(dir) {
+    workoutChartPage = Math.max(0, workoutChartPage + dir);
+    renderProgressCharts();
+}
+function progExerciseChartNav(dir) {
+    exerciseChartPage = Math.max(0, exerciseChartPage + dir);
+    renderProgressCharts();
+}
+
+// Jump back to the most recent page whenever the chart's dropdown
+// selection changes — an old page index may not make sense for a newly
+// selected workout/exercise series.
+function onProgWorkoutSelectChange() {
+    workoutChartPage = 0;
+    renderProgressCharts();
+}
+function onProgExerciseSelectChange() {
+    exerciseChartPage = 0;
+    renderProgressCharts();
+}
+
+// ── Axis scale-factor helper ────────────────────────────────────────
+// Picks a divisor (1 / 1,000 / 1,000,000) based on the largest value
+// currently plotted so axis tick labels stay short, and returns a short
+// suffix to append to the axis title so the true magnitude is still
+// communicated (e.g. "Work (J) ×1,000" means the axis shows thousands).
+function chooseAxisScale(values) {
+    const max = (values || []).reduce((m, v) => (v != null && Math.abs(v) > m ? Math.abs(v) : m), 0);
+    if (max >= 1e6) return { factor: 1e6, suffix: ' ×1,000,000' };
+    if (max >= 1e3) return { factor: 1e3, suffix: ' ×1,000' };
+    return { factor: 1, suffix: '' };
+}
+
+// ── Linear regression trend line ────────────────────────────────────
+// Least-squares fit over (index, value) pairs, skipping null/undefined
+// values. Returns an array the same length as `values` with the fitted
+// line at every index (so it draws as one continuous dashed line even
+// across gaps in the source data), or null if there are fewer than 2
+// usable points to fit a line through.
+function computeTrendLine(values) {
+    const pts = [];
+    (values || []).forEach((v, i) => { if (v != null && !isNaN(v)) pts.push([i, v]); });
+    if (pts.length < 2) return null;
+    const n     = pts.length;
+    const sumX  = pts.reduce((s, p) => s + p[0], 0);
+    const sumY  = pts.reduce((s, p) => s + p[1], 0);
+    const sumXY = pts.reduce((s, p) => s + p[0] * p[1], 0);
+    const sumXX = pts.reduce((s, p) => s + p[0] * p[0], 0);
+    const denom = (n * sumXX - sumX * sumX);
+    if (denom === 0) return null;
+    const slope     = (n * sumXY - sumX * sumY) / denom;
+    const intercept = (sumY - slope * sumX) / n;
+    return values.map((_, i) => +(intercept + slope * i).toFixed(2));
+}
+
+// ── Scroll-to-card from chart tooltip ───────────────────────────────
+// Finds the progress-log card matching a given date + workout name and
+// smooth-scrolls it into view, with a brief highlight so it's easy to spot.
+function scrollToProgressCard(isoDate, workoutName) {
+    const idx = progressLogs.findIndex(l => l.date === isoDate && (l.workoutName || l.day || '') === workoutName);
+    if (idx < 0) return;
+    const el = document.getElementById(`progress-log-entry-${idx}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('prog-card-highlight');
+    setTimeout(() => el.classList.remove('prog-card-highlight'), 2000);
+}
+
+// Hide the exercise chart's custom tooltip when tapping anywhere outside
+// it or the chart canvas — external tooltips don't auto-dismiss on touch
+// the way Chart.js's built-in canvas tooltip does.
+document.addEventListener('click', (e) => {
+    const tt = document.getElementById('chart-exercise-tooltip');
+    if (!tt || tt.style.opacity === '0' || tt.style.opacity === '') return;
+    const canvas = document.getElementById('chart-exercise');
+    if (tt.contains(e.target) || (canvas && canvas.contains(e.target))) return;
+    tt.style.opacity = '0';
+    tt.style.pointerEvents = 'none';
+});
+
 // ── Settings TAB ─────────────────────────────────────────────────
 function loadSettings() {
     document.getElementById('user-weight').value = userSettings.weight;
@@ -2967,6 +3211,8 @@ function loadSettings() {
     document.getElementById('weight-unit').value = userSettings.weightUnit;
     const huEl = document.getElementById('height-unit');
     if (huEl) huEl.value = userSettings.heightUnit || 'in';
+    const trendEl = document.getElementById('show-trend-lines');
+    if (trendEl) trendEl.checked = !!userSettings.showTrendLines;
     updateSettingsWeightLabel();
     updateSettingsHeightLabel();
     renderCustomLibraryList();
@@ -3048,6 +3294,7 @@ function saveSettings() {
     const heightVal  = parseFloat(document.getElementById('user-height').value);
     const weightUnit = document.getElementById('weight-unit').value;
     const heightUnit = (document.getElementById('height-unit')?.value) || 'in';
+    const showTrendLines = document.getElementById('show-trend-lines')?.checked || false;
     if (weightVal && weightVal <= 0) { alert('Please enter a positive body weight.'); return; }
     if (heightVal && heightVal <= 0) { alert('Please enter a positive height.'); return; }
 
@@ -3079,6 +3326,7 @@ function saveSettings() {
     userSettings.height     = newHeight;
     userSettings.weightUnit = weightUnit;
     userSettings.heightUnit = heightUnit;
+    userSettings.showTrendLines = showTrendLines;
     localStorage.setItem('userSettings', JSON.stringify(userSettings));
 
     // Update input fields to show converted values

@@ -1,6 +1,6 @@
 // service-worker.js
-// Version 9.9 — cache bump for exercise notes info button feature
-const CACHE_NAME = 'fitness-app-v9.9';
+// Version 9.10 — progress chart update
+const CACHE_NAME = 'fitness-app-v9.10';
 
 const BASE = self.location.pathname.replace(/\/service-worker\.js$/, '');
 const urlsToCache = [
