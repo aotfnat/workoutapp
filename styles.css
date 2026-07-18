@@ -1,7 +1,6 @@
 /* ── styles.css ── iPhone-optimised PWA ──────────────────────────── */
-/* Version 9.10; SOC: Progress chart pagination arrows, custom clickable exercise
-   tooltip, progress-log card highlight animation, and Settings checkbox row style
-   added for the Work/Power chart readability overhaul */
+/* Version 10.0; SOC: Added .plan-header / .plan-program-controls styles for
+   the new Plan tab workout-program selector (multiple workout programs) */
 
 /* ── Reset & base ──────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
@@ -525,6 +524,52 @@ button:disabled {
 }
 .menu-item:active { opacity: 0.7; }
 
+
+/* ── Plan tab — program header (multiple workout programs) ─────── */
+.plan-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: #f0f0f5;
+    margin: -16px -16px 16px;
+    padding: 16px 16px 12px;
+}
+.plan-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.plan-header-title {
+    display: flex;
+    align-items: center;
+    font-size: 22px;
+    font-weight: 700;
+    color: #1c1c1e;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.plan-program-controls {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex: 1 1 auto;
+    min-width: 0;
+    justify-content: flex-end;
+}
+.plan-program-select {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 170px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.plan-program-controls .icon-btn {
+    font-size: 16px;
+    flex-shrink: 0;
+}
 
 /* ── Plan tab — workout cards ───────────────────────────────────── */
 .plan-empty {

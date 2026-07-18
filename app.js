@@ -1,29 +1,52 @@
 // app.js
-//Version 9.10
-//SOC: Progress chart overhaul — paginate to last 30 workouts with back/forward
-//     nav arrows, scale axis tick labels (with a ×1,000/×1,000,000 suffix in
-//     the title) to cut down on zeros, added a clickable custom tooltip on the
-//     exercise chart so tapping the date auto-scrolls to that session's log
-//     card, and added an optional linear-regression trend line for Work and
-//     Power (toggled from Settings)
+//Version 10.0
+//SOC: Added support for multiple workout programs (e.g. Home Gym / Travel,
+//     Pre-Season / In-Season / Post-Season). workoutPlan/currentWorkoutIndex
+//     now mirror whichever program is active; added renderProgramSelect(),
+//     switchProgram(), addProgram(), renameCurrentProgram(),
+//     deleteCurrentProgram(). Plan CSV export/import now covers ALL
+//     programs (new program_index/program_name columns, backward-compatible
+//     with older single-program CSVs). Bumped SCHEMA_VERSION to 6 — old
+//     localStorage plan/progress data is cleared on first load after update.
 
 
 // ── Schema version guard ─────────────────────────────────────────
 // Bump SCHEMA_VERSION whenever the data model changes in a breaking way.
-const SCHEMA_VERSION = '5';  // Phase 4: Work/Power calculation stored in log, two-chart progress tab
+const SCHEMA_VERSION = '6';  // Phase 5: multiple workout programs
 const storedVersion  = localStorage.getItem('schemaVersion');
 if (storedVersion !== SCHEMA_VERSION) {
     localStorage.removeItem('workoutPlan');
     localStorage.removeItem('currentWorkoutIndex');
+    localStorage.removeItem('workoutPrograms');
+    localStorage.removeItem('currentProgramIndex');
     localStorage.removeItem('progressLogs');
     localStorage.setItem('schemaVersion', SCHEMA_VERSION);
 }
 
 // ── Data ────────────────────────────────────────────────────────
-let workoutPlan         = JSON.parse(localStorage.getItem('workoutPlan'))      || [];
-let currentWorkoutIndex = parseInt(localStorage.getItem('currentWorkoutIndex')) || 0;
-let progressLogs        = JSON.parse(localStorage.getItem('progressLogs'))      || [];
+// A "program" groups a set of workouts (e.g. "Home Gym", "Travel",
+// "Pre-Season"). Only one program is active at a time; its workouts feed
+// the Workout tab and, in turn, the Progress tab — same as a single plan
+// always worked before.
+let workoutPrograms = JSON.parse(localStorage.getItem('workoutPrograms')) || [];
+if (workoutPrograms.length === 0) {
+    workoutPrograms.push({ name: 'My Program', workouts: [], currentWorkoutIndex: 0 });
+}
+let currentProgramIndex = parseInt(localStorage.getItem('currentProgramIndex'));
+if (isNaN(currentProgramIndex) || currentProgramIndex < 0 || currentProgramIndex >= workoutPrograms.length) {
+    currentProgramIndex = 0;
+}
+
+// workoutPlan / currentWorkoutIndex always mirror the ACTIVE program.
+// workoutPlan is the SAME array reference as workoutPrograms[currentProgramIndex].workouts,
+// so all the existing Plan-tab code (push/splice/drag-drop/exercise CRUD) that
+// mutates workoutPlan in place keeps working unchanged. currentWorkoutIndex is a
+// plain number, so it's re-synced into workoutPrograms explicitly in savePlan().
+let workoutPlan         = workoutPrograms[currentProgramIndex].workouts;
+let currentWorkoutIndex = workoutPrograms[currentProgramIndex].currentWorkoutIndex || 0;
 if (currentWorkoutIndex >= workoutPlan.length) currentWorkoutIndex = 0;
+
+let progressLogs        = JSON.parse(localStorage.getItem('progressLogs'))      || [];
 
 // User Settings
 let userSettings = JSON.parse(localStorage.getItem('userSettings'))
@@ -312,8 +335,105 @@ function initTabs() {}
 
 // ── Persistence ──────────────────────────────────────────────────
 function savePlan() {
-    localStorage.setItem('workoutPlan', JSON.stringify(workoutPlan));
-    localStorage.setItem('currentWorkoutIndex', String(currentWorkoutIndex));
+    workoutPrograms[currentProgramIndex].workouts            = workoutPlan;
+    workoutPrograms[currentProgramIndex].currentWorkoutIndex  = currentWorkoutIndex;
+    localStorage.setItem('workoutPrograms', JSON.stringify(workoutPrograms));
+    localStorage.setItem('currentProgramIndex', String(currentProgramIndex));
+}
+
+// ── Workout Programs ─────────────────────────────────────────────
+// Programs let a user keep multiple workout plans (Home Gym / Travel,
+// Pre-Season / In-Season / Post-Season, etc.) and switch which one is
+// "active" — the active program's workouts are what the Plan tab shows,
+// what the Workout tab runs, and what Progress logs get attached to.
+
+function renderProgramSelect() {
+    const sel = document.getElementById('program-select');
+    if (!sel) return;
+    sel.innerHTML = workoutPrograms.map((p, i) =>
+        `<option value="${i}" ${i === currentProgramIndex ? 'selected' : ''}>${escHtml(p.name)}</option>`
+    ).join('');
+}
+
+function onProgramSelectChange(value) {
+    switchProgram(parseInt(value));
+}
+
+function switchProgram(newIndex) {
+    if (workoutInProgress) {
+        alert('Finish or cancel the current workout before switching programs.');
+        renderProgramSelect();
+        return;
+    }
+    if (isNaN(newIndex) || newIndex < 0 || newIndex >= workoutPrograms.length || newIndex === currentProgramIndex) {
+        renderProgramSelect();
+        return;
+    }
+    // Persist the outgoing program's state (workoutPlan is already the same
+    // array reference, but currentWorkoutIndex is a plain number).
+    workoutPrograms[currentProgramIndex].currentWorkoutIndex = currentWorkoutIndex;
+
+    currentProgramIndex = newIndex;
+    workoutPlan         = workoutPrograms[currentProgramIndex].workouts;
+    currentWorkoutIndex = workoutPrograms[currentProgramIndex].currentWorkoutIndex || 0;
+    if (currentWorkoutIndex >= workoutPlan.length) currentWorkoutIndex = 0;
+
+    localStorage.setItem('workoutPrograms', JSON.stringify(workoutPrograms));
+    localStorage.setItem('currentProgramIndex', String(currentProgramIndex));
+
+    expandedCards.clear();
+    loadPlan();
+}
+
+function addProgram() {
+    const name = prompt('New program name (e.g. "Home Gym", "Travel", "Pre-Season"):')?.trim();
+    if (!name) return;
+    workoutPrograms[currentProgramIndex].currentWorkoutIndex = currentWorkoutIndex;
+    workoutPrograms.push({ name, workouts: [], currentWorkoutIndex: 0 });
+    localStorage.setItem('workoutPrograms', JSON.stringify(workoutPrograms));
+
+    if (workoutInProgress) {
+        // Don't switch away from the active program mid-workout — the new
+        // program is saved and will show up in the dropdown once it's safe.
+        alert(`"${name}" created. It'll be selectable once your current workout is finished.`);
+        renderProgramSelect();
+    } else {
+        switchProgram(workoutPrograms.length - 1);
+    }
+}
+
+function renameCurrentProgram() {
+    const p = workoutPrograms[currentProgramIndex];
+    const name = prompt('Rename program:', p.name)?.trim();
+    if (!name) return;
+    p.name = name;
+    localStorage.setItem('workoutPrograms', JSON.stringify(workoutPrograms));
+    renderProgramSelect();
+}
+
+function deleteCurrentProgram() {
+    if (workoutInProgress) {
+        alert('Finish or cancel the current workout before deleting a program.');
+        return;
+    }
+    if (workoutPrograms.length <= 1) {
+        alert('You need at least one workout program.');
+        return;
+    }
+    const p = workoutPrograms[currentProgramIndex];
+    if (!confirm(`Delete program "${p.name}" and all ${p.workouts.length} of its workout(s)?\nThis cannot be undone.`)) return;
+
+    workoutPrograms.splice(currentProgramIndex, 1);
+    currentProgramIndex = 0;
+    workoutPlan         = workoutPrograms[currentProgramIndex].workouts;
+    currentWorkoutIndex = workoutPrograms[currentProgramIndex].currentWorkoutIndex || 0;
+    if (currentWorkoutIndex >= workoutPlan.length) currentWorkoutIndex = 0;
+
+    localStorage.setItem('workoutPrograms', JSON.stringify(workoutPrograms));
+    localStorage.setItem('currentProgramIndex', String(currentProgramIndex));
+
+    expandedCards.clear();
+    loadPlan();
 }
 
 
@@ -410,6 +530,7 @@ function calNav(dir) {
 // ── PLAN TAB ─────────────────────────────────────────────────────
 
 function loadPlan() {
+    renderProgramSelect();
     const container = document.getElementById('weekly-plan');
     container.innerHTML = '';
 
@@ -1677,6 +1798,7 @@ function updatePauseResumeBtn() {
 }
 
 function pauseResumeTimer() {
+    ensureAudioUnlocked();
     if (timerMode === 'rest') {
         clearInterval(timerInterval);
         timerInterval = null;
@@ -1709,6 +1831,7 @@ function pauseResumeTimer() {
 
 // Skip rest to 3 seconds remaining
 function skipToEndOfRest() {
+    ensureAudioUnlocked();
     if (timerMode !== 'rest' && timerMode !== 'paused-rest') return;
     if (timerRemaining <= 3) return; // already nearly done
     timerRemaining = 3;
@@ -1889,6 +2012,7 @@ function onCountdownComplete() {
 
 // ── Next Set button handler ───────────────────────────────────────
 function nextSet() {
+    ensureAudioUnlocked();
     // Guard against accidental double-tap / double-fired click advancing two sets
     const now = Date.now();
     if (now - lastNextSetTime < NEXT_SET_DEBOUNCE_MS) return;
@@ -1961,6 +2085,7 @@ function nextSet() {
 }
 
 function prevSet() {
+    ensureAudioUnlocked();
     if (currentExerciseIndex === 0 && currentSet === 1) {
         // Cancel workout
         lapsedTime        = 0;
@@ -2114,6 +2239,7 @@ function renderExercise() {
 }
 
 function completeWorkout(silent = false) {
+    ensureAudioUnlocked();
     const wo = workoutPlan[currentWorkoutIndex];
     if (!silent && !confirm(`Complete "${wo.name}"?\n\nThis will log your workout and advance to the next one.`)) return;
 
@@ -2259,7 +2385,9 @@ function triggerCSVDownload(csvContent, filename) {
 }
 
 // ── CSV BACKUP & RESTORE ──────────────────────────────────────────
-const CSV_HEADER = 'workout_index,workout_name,exercise_name,type,phase,sets,target,unit,bodyWeightPct,heightPct,distanceM,setRestSec,exerciseRestSec,timedInput,autoSequence';
+// Exports/imports ALL workout programs (not just the active one), so a
+// backup/restore round-trip never silently drops a program.
+const CSV_HEADER = 'program_index,program_name,workout_index,workout_name,exercise_name,type,phase,sets,target,unit,bodyWeightPct,heightPct,distanceM,setRestSec,exerciseRestSec,timedInput,autoSequence';
 
 function csvEscape(val) {
     const s = String(val);
@@ -2270,35 +2398,48 @@ function csvEscape(val) {
 }
 
 function exportPlanCSV() {
-    if (workoutPlan.length === 0) {
+    // workoutPlan is already the same array reference as the active program's
+    // workouts, but keep currentWorkoutIndex in sync defensively before reading.
+    workoutPrograms[currentProgramIndex].currentWorkoutIndex = currentWorkoutIndex;
+
+    const hasAnyWorkouts = workoutPrograms.some(p => p.workouts.length > 0);
+    if (!hasAnyWorkouts) {
         alert('Nothing to export — your plan is empty.');
         return;
     }
     const rows = [CSV_HEADER];
-    workoutPlan.forEach((wo, wIdx) => {
-        if (wo.exercises.length === 0) {
-            rows.push([csvEscape(wIdx), csvEscape(wo.name), '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
-        } else {
-            wo.exercises.forEach(ex => {
-                rows.push([
-                    csvEscape(wIdx),
-                    csvEscape(wo.name),
-                    csvEscape(ex.name),
-                    csvEscape(ex.type            || 'isotonic'),
-                    csvEscape(ex.phase           || 'work'),
-                    csvEscape(ex.sets),
-                    csvEscape(ex.target),
-                    csvEscape(ex.unit),
-                    csvEscape(ex.bodyWeightPct   ?? 0),
-                    csvEscape(ex.heightPct       ?? ''),
-                    csvEscape(ex.distanceM       ?? ''),
-                    csvEscape(ex.setRestSec      ?? 60),
-                    csvEscape(ex.exerciseRestSec ?? 90),
-                    csvEscape(ex.timedInput      || 'reps'),
-                    csvEscape(ex.autoSequence    ? 'true' : 'false')
-                ].join(','));
-            });
+    workoutPrograms.forEach((program, pIdx) => {
+        if (program.workouts.length === 0) {
+            rows.push([csvEscape(pIdx), csvEscape(program.name), '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
+            return;
         }
+        program.workouts.forEach((wo, wIdx) => {
+            if (wo.exercises.length === 0) {
+                rows.push([csvEscape(pIdx), csvEscape(program.name), csvEscape(wIdx), csvEscape(wo.name), '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
+            } else {
+                wo.exercises.forEach(ex => {
+                    rows.push([
+                        csvEscape(pIdx),
+                        csvEscape(program.name),
+                        csvEscape(wIdx),
+                        csvEscape(wo.name),
+                        csvEscape(ex.name),
+                        csvEscape(ex.type            || 'isotonic'),
+                        csvEscape(ex.phase           || 'work'),
+                        csvEscape(ex.sets),
+                        csvEscape(ex.target),
+                        csvEscape(ex.unit),
+                        csvEscape(ex.bodyWeightPct   ?? 0),
+                        csvEscape(ex.heightPct       ?? ''),
+                        csvEscape(ex.distanceM       ?? ''),
+                        csvEscape(ex.setRestSec      ?? 60),
+                        csvEscape(ex.exerciseRestSec ?? 90),
+                        csvEscape(ex.timedInput      || 'reps'),
+                        csvEscape(ex.autoSequence    ? 'true' : 'false')
+                    ].join(','));
+                });
+            }
+        });
     });
     const csvContent = rows.join('\n');
     const dateStr = new Date().toISOString().slice(0, 10);
@@ -2316,32 +2457,56 @@ function importPlanCSV(event) {
             const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
             if (lines.length < 2) { alert('Import failed: empty file.'); return; }
             const header = lines[0].trim().toLowerCase();
-            if (!header.startsWith('workout_index,workout_name')) {
+            // Newer exports include program_index/program_name up front; older
+            // single-program exports start straight with workout_index. Both
+            // are accepted — an old-format file is imported as one program.
+            const hasProgramCols = header.startsWith('program_index,program_name');
+            if (!hasProgramCols && !header.startsWith('workout_index,workout_name')) {
                 alert("Import failed: unexpected header.\nExpected: " + CSV_HEADER);
                 return;
             }
-            const parsed = {};
+
+            const programsMap   = {};   // pIdx -> { name, workoutsMap, workoutOrder }
+            const programOrder  = [];
+
             lines.slice(1).forEach(line => {
                 const cols = parseCSVLine(line);
                 if (cols.length < 2) return;
-                const wIdx            = cols[0].trim();
-                const wName           = cols[1].trim();
-                const exName          = (cols[2]  || '').trim();
-                const type            = (cols[3]  || 'isotonic').trim() || 'isotonic';
-                const phase           = (cols[4]  || 'work').trim()     || 'work';
-                const sets            = parseInt(cols[5])   || 3;
-                const target          = parseInt(cols[6])   || 10;
-                const unit            = (cols[7]  || 'reps').trim()     || 'reps';
-                const bodyWeightPct   = parseFloat(cols[8]) || 0;
-                const heightPct       = cols[9]?.trim()  !== '' ? parseFloat(cols[9])  : null;
-                const distanceM       = cols[10]?.trim() !== '' ? parseFloat(cols[10]) : null;
-                const setRestSec      = parseInt(cols[11]) || 60;
-                const exerciseRestSec = parseInt(cols[12]) || 90;
-                const timedInput      = (cols[13]?.trim() || 'reps') || 'reps';
-                const autoSequence    = (cols[14]?.trim() || 'false') === 'true';
-                if (!parsed[wIdx]) parsed[wIdx] = { name: wName, exercises: [] };
+                let ci = 0;
+                let pIdx = '0', pName = 'Imported Program';
+                if (hasProgramCols) {
+                    pIdx  = (cols[ci++] || '0').trim() || '0';
+                    pName = (cols[ci++] || '').trim()  || 'Imported Program';
+                }
+                const wIdx            = (cols[ci++] || '0').trim() || '0';
+                const wName           = (cols[ci++] || '').trim();
+                const exName          = (cols[ci++]  || '').trim();
+                const type            = (cols[ci++]  || 'isotonic').trim() || 'isotonic';
+                const phase           = (cols[ci++]  || 'work').trim()     || 'work';
+                const sets            = parseInt(cols[ci++])   || 3;
+                const target          = parseInt(cols[ci++])   || 10;
+                const unit            = (cols[ci++]  || 'reps').trim()     || 'reps';
+                const bodyWeightPct   = parseFloat(cols[ci++]) || 0;
+                const heightPctRaw    = cols[ci++];
+                const heightPct       = heightPctRaw?.trim()  !== '' ? parseFloat(heightPctRaw)  : null;
+                const distanceMRaw    = cols[ci++];
+                const distanceM       = distanceMRaw?.trim() !== '' ? parseFloat(distanceMRaw) : null;
+                const setRestSec      = parseInt(cols[ci++]) || 60;
+                const exerciseRestSec = parseInt(cols[ci++]) || 90;
+                const timedInput      = (cols[ci++]?.trim() || 'reps') || 'reps';
+                const autoSequence    = (cols[ci++]?.trim() || 'false') === 'true';
+
+                if (!programsMap[pIdx]) {
+                    programsMap[pIdx] = { name: pName, workoutsMap: {}, workoutOrder: [] };
+                    programOrder.push(pIdx);
+                }
+                const program = programsMap[pIdx];
+                if (!program.workoutsMap[wIdx]) {
+                    program.workoutsMap[wIdx] = { name: wName, exercises: [] };
+                    program.workoutOrder.push(wIdx);
+                }
                 if (exName) {
-                    parsed[wIdx].exercises.push({
+                    program.workoutsMap[wIdx].exercises.push({
                         name: exName, type, phase,
                         bodyWeightPct, heightPct, distanceM,
                         setRestSec, exerciseRestSec,
@@ -2350,15 +2515,30 @@ function importPlanCSV(event) {
                     });
                 }
             });
-            const importedPlan = Object.values(parsed);
-            if (importedPlan.length === 0) { alert('Import failed: no workout data found.'); return; }
-            const action = workoutPlan.length === 0 ? null
-                : confirm(`Import ${importedPlan.length} workout(s)?\nThis will REPLACE your current plan.`);
-            if (workoutPlan.length > 0 && !action) return;
-            workoutPlan = importedPlan;
-            currentWorkoutIndex = 0;
-            savePlan(); loadPlan();
-            alert(`✅ Imported ${importedPlan.length} workout(s) successfully!`);
+
+            const importedPrograms = programOrder.map(pIdx => {
+                const program  = programsMap[pIdx];
+                const workouts = program.workoutOrder.map(wIdx => program.workoutsMap[wIdx]);
+                return { name: program.name, workouts, currentWorkoutIndex: 0 };
+            });
+
+            if (importedPrograms.length === 0) { alert('Import failed: no workout data found.'); return; }
+
+            const totalWorkouts = importedPrograms.reduce((s, p) => s + p.workouts.length, 0);
+            const hasExisting   = workoutPrograms.length > 1 || workoutPrograms.some(p => p.workouts.length > 0);
+            const action = !hasExisting ? true
+                : confirm(`Import ${importedPrograms.length} program(s) with ${totalWorkouts} workout(s) total?\nThis will REPLACE all of your current programs.`);
+            if (hasExisting && !action) return;
+
+            workoutPrograms      = importedPrograms;
+            currentProgramIndex  = 0;
+            workoutPlan          = workoutPrograms[0].workouts;
+            currentWorkoutIndex  = 0;
+            localStorage.setItem('workoutPrograms', JSON.stringify(workoutPrograms));
+            localStorage.setItem('currentProgramIndex', String(currentProgramIndex));
+            expandedCards.clear();
+            loadPlan();
+            alert(`✅ Imported ${importedPrograms.length} program(s), ${totalWorkouts} workout(s) successfully!`);
         } catch (err) {
             alert('Import failed: ' + err.message);
         }
@@ -2436,18 +2616,53 @@ function activateWaitingSW(sw) {
 
 // ── SOUNDS ───────────────────────────────────────────────────────
 let _audioCtx = null;
+// Set true whenever the app returns to the foreground so the next genuine
+// tap can (re)unlock audio inside a real user gesture — see resumeAudioContext().
+let _audioNeedsResume = false;
+
 function getAudioCtx() {
-    if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (!_audioCtx || _audioCtx.state === 'closed') {
+        _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
     // iOS suspends the AudioContext when another app takes the audio session.
     // Resume it immediately so sounds work after switching back from e.g. a podcast app.
     if (_audioCtx.state === 'suspended') _audioCtx.resume();
     return _audioCtx;
 }
 
-// Resume the AudioContext whenever the app returns to the foreground.
-// iOS does not do this automatically, so sounds would stay silent without this.
+// Rebuild the AudioContext from scratch. iOS Safari does not reliably
+// recover from an interruption (Music, Podcasts, a phone call taking the
+// audio session) with ctx.resume() alone — WebKit can leave the existing
+// context reporting state === 'running' even though the underlying audio
+// unit was torn down, so resume() resolves but nothing actually plays.
+// Closing the old context and building a fresh one (then nudging it with
+// a near-silent buffer) is the reliable fix.
 function resumeAudioContext() {
-    if (_audioCtx && _audioCtx.state === 'suspended') _audioCtx.resume();
+    try {
+        if (_audioCtx && _audioCtx.state !== 'closed') {
+            _audioCtx.close().catch(() => {});
+        }
+    } catch(e) {}
+    _audioCtx = null;
+    try {
+        _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const buffer = _audioCtx.createBuffer(1, 1, 22050);
+        const src = _audioCtx.createBufferSource();
+        src.buffer = buffer;
+        src.connect(_audioCtx.destination);
+        src.start(0);
+    } catch(e) {}
+}
+
+// A fresh AudioContext created outside a user gesture (e.g. from the
+// visibilitychange handler below) can still come back suspended on iOS.
+// Call this at the top of any function that only ever runs in response to
+// a real tap (Pause/Resume, Next Set, etc.) — it re-runs resumeAudioContext()
+// once, inside that genuine gesture, if a foreground-return is still pending.
+function ensureAudioUnlocked() {
+    if (!_audioNeedsResume) return;
+    _audioNeedsResume = false;
+    resumeAudioContext();
 }
 
 function playWhistle() {
@@ -3345,7 +3560,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
-            // Resume Web Audio API context if iOS suspended it while another app played audio
+            // Rebuild the Web Audio API context in case iOS silently broke it
+            // while another app (Music, Podcasts, a call) held the audio session.
+            // This call happens outside a user gesture, so it may not fully
+            // "take" on iOS — flag it so the very next real tap (Pause/Resume,
+            // Next Set, etc.) retries inside a genuine gesture via ensureAudioUnlocked().
+            _audioNeedsResume = true;
             resumeAudioContext();
             // Re-check auto-complete each time app comes to foreground
             const raw = localStorage.getItem('inProgressWorkout');

@@ -1,6 +1,6 @@
 // service-worker.js
-// Version 9.10 — progress chart update
-const CACHE_NAME = 'fitness-app-v9.10';
+// Version 10.0 — multiple workout programs added
+const CACHE_NAME = 'fitness-app-v10.0';
 
 const BASE = self.location.pathname.replace(/\/service-worker\.js$/, '');
 const urlsToCache = [

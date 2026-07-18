@@ -1,5 +1,6 @@
 <!-- index.html Workout App -->
-<!-- Version 9.10, SOC: added "Show Trend Lines on Progress Charts" toggle to Settings tab -->
+<!-- Version 10.0, SOC: Plan tab header now has a workout-program selector
+     (dropdown + rename/delete/add) to support multiple workout programs -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -33,7 +34,17 @@
 
         <!-- PLAN -->
         <div id="plan-section" class="tab-content">
-            <h2><button class="section-menu-btn" onclick="toggleMenu()">☰</button> 📋 Plan</h2>
+            <div class="plan-header">
+                <div class="plan-header-row">
+                    <span class="plan-header-title"><button class="section-menu-btn" onclick="toggleMenu()">☰</button> 📋 Plan</span>
+                    <div class="plan-program-controls">
+                        <select id="program-select" class="prog-select plan-program-select" onchange="onProgramSelectChange(this.value)"></select>
+                        <button class="icon-btn" onclick="renameCurrentProgram()" title="Rename program">✏️</button>
+                        <button class="icon-btn danger" onclick="deleteCurrentProgram()" title="Delete program">🗑</button>
+                        <button class="icon-btn" onclick="addProgram()" title="Add program">➕</button>
+                    </div>
+                </div>
+            </div>
             <div id="weekly-plan"></div>
             <button onclick="addWorkout()">＋ Add Workout</button>
             <button onclick="savePlanWithAlert()">💾 Save Plan</button>
