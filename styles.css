@@ -1,6 +1,6 @@
 /* ── styles.css ── iPhone-optimised PWA ──────────────────────────── */
-/* Version 10.0; SOC: Added .plan-header / .plan-program-controls styles for
-   the new Plan tab workout-program selector (multiple workout programs) */
+/* Version 10.1; SOC: Added .ex-tag-uni / .ex-tag-bi styles for the new
+   bilateral/unilateral tag shown in the Plan tab exercise row. */
 
 /* ── Reset & base ──────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
@@ -1499,6 +1499,14 @@ body:has(#workout-section.active) #floating-menu-btn {
 .ex-tag-ton {
     background: rgba(52,199,89,0.18);
     color: #30d158;
+}
+.ex-tag-bi {
+    background: rgba(142,142,147,0.16);
+    color: #636366;
+}
+.ex-tag-uni {
+    background: rgba(255,159,10,0.18);
+    color: #ff9f0a;
 }
 
 /* ── Phase 2: Exercise form modal ───────────────────────────────── */

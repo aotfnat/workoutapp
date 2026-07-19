@@ -1,4 +1,22 @@
 // app.js
+//Version 10.2
+//SOC: Swapped the laterality emoji for inline SVG icons — a barbell
+//     (BARBELL_ICON_SVG) for bilateral, a dumbbell (DUMBBELL_ICON_SVG) for
+//     unilateral — via lateralityIconSVG(), used in the exercise form
+//     toggle, the Plan tab tag, and the Workout tab Added Weight label.
+//     calcForce() now also doubles the added-weight portion (not just the
+//     body-weight portion) for unilateral exercises.
+//Version 10.1
+//SOC: Added bilateral/unilateral toggle to exercise creation (ex.laterality,
+//     default 'bilateral', additive/non-breaking so no SCHEMA_VERSION bump
+//     needed). Unilateral exercises double the body-weight-based portion of
+//     force (one limb now bears what bilateral shares across two) via
+//     calcForce()/getBodyWeightForce(); added weight is unaffected. Added a
+//     laterality toggle in the exercise form (with BW-preview + library-apply
+//     support), a laterality tag in the Plan tab exercise row, and a
+//     laterality icon next to Added Weight in the Workout tab. Plan and
+//     Progress CSV export/import now include a trailing `laterality` column
+//     (old CSVs without it default to bilateral).
 //Version 10.0
 //SOC: Added support for multiple workout programs (e.g. Home Gym / Travel,
 //     Pre-Season / In-Season / Post-Season). workoutPlan/currentWorkoutIndex
@@ -66,10 +84,30 @@ function getUserWeightInWorkingUnit() {
     return w;
 }
 
+// Unilateral exercises put what bilateral movements share across two limbs
+// onto a single working limb, so the body-weight-based portion of the load
+// effectively doubles (e.g. a two-legged squat vs. a single-leg squat).
+// Added/external weight is ALSO doubled for unilateral exercises — the
+// working side is bearing the full amount rather than sharing it.
+function lateralityMultiplier(ex) {
+    return ex.laterality === 'unilateral' ? 2 : 1;
+}
+
+// Small inline SVG icons (rely on currentColor so they inherit whatever
+// text colour the surrounding element uses) — a barbell for bilateral
+// exercises (both sides lifting together) and a dumbbell for unilateral
+// exercises (one side working independently).
+const BARBELL_ICON_SVG  = '<svg viewBox="0 0 32 16" width="20" height="10" fill="currentColor" style="vertical-align:middle;" aria-hidden="true"><rect x="0" y="4" width="2" height="8"/><rect x="3" y="2" width="2" height="12"/><rect x="6" y="7" width="20" height="2"/><rect x="27" y="2" width="2" height="12"/><rect x="30" y="4" width="2" height="8"/></svg>';
+const DUMBBELL_ICON_SVG = '<svg viewBox="0 0 32 16" width="20" height="10" fill="currentColor" style="vertical-align:middle;" aria-hidden="true"><rect x="0" y="1" width="7" height="14" rx="2"/><rect x="7" y="6.5" width="18" height="3"/><rect x="25" y="1" width="7" height="14" rx="2"/></svg>';
+
+function lateralityIconSVG(ex) {
+    return (ex.laterality === 'unilateral') ? DUMBBELL_ICON_SVG : BARBELL_ICON_SVG;
+}
+
 function getBodyWeightForce(ex) {
     const bw = getUserWeightInWorkingUnit();
     if (bw === null || ex.bodyWeightPct === undefined) return null;
-    return bw * ex.bodyWeightPct;
+    return bw * ex.bodyWeightPct * lateralityMultiplier(ex);
 }
 
 function formatBodyWeightForce(ex) {
@@ -101,9 +139,13 @@ function isMetric() {
 }
 
 // Returns force in N (metric) or lbf (imperial) from user body-weight + added weight.
+// Unilateral exercises double BOTH the body-weight-based portion and the
+// added weight (see lateralityMultiplier above) — the working side bears
+// the full load rather than sharing it.
 function calcForce(ex, addedWeight) {
     const bw = getUserWeightInWorkingUnit() || 0;
-    const rawForce = bw * (ex.bodyWeightPct || 0) + (addedWeight || 0);
+    const multiplier = lateralityMultiplier(ex);
+    const rawForce = (bw * (ex.bodyWeightPct || 0) + (addedWeight || 0)) * multiplier;
     if (isMetric()) return rawForce * 9.81;   // kg → N
     return rawForce;                           // lb stays lbf
 }
@@ -616,6 +658,10 @@ function renderExerciseRow(ex, wIdx, eIdx) {
         ? '<span class="ex-tag ex-tag-iso">ISO</span>'
         : '<span class="ex-tag ex-tag-ton">TON</span>';
 
+    const lateralityTag = ex.laterality === 'unilateral'
+        ? `<span class="ex-tag ex-tag-uni" title="Unilateral — one side at a time">${DUMBBELL_ICON_SVG} UNI</span>`
+        : `<span class="ex-tag ex-tag-bi" title="Bilateral — both sides together">${BARBELL_ICON_SVG} BI</span>`;
+
     const bwForce = getBodyWeightForce(ex);
     const bwText  = bwForce !== null
         ? `${bwForce.toFixed(1)} ${userSettings.weightUnit} BW`
@@ -651,6 +697,7 @@ function renderExerciseRow(ex, wIdx, eIdx) {
             <div class="plan-ex-main">
                 <span class="ex-drag-handle" title="Drag to reorder">⠿</span>
                 ${typeTag}
+                ${lateralityTag}
                 <span class="plan-ex-name">${escHtml(ex.name)}</span>
                 <button class="icon-btn plan-ex-edit-btn" onclick="editExercise(${wIdx}, ${eIdx})" title="Edit">✏️</button>
                 <button class="icon-btn danger" onclick="removeExercise(${wIdx}, ${eIdx})" title="Remove">✕</button>
@@ -801,7 +848,7 @@ function addExercise(wIdx, phase) {
         bodyWeightPct: 0, heightPct: null, distanceM: null,
         unit: 'reps', target: 10, timedInput: 'reps',
         sets: 3, setRestSec: 60, exerciseRestSec: 90,
-        autoSequence: false
+        autoSequence: false, laterality: 'bilateral'
     };
     openExerciseForm('Add Exercise', defaults);
 }
@@ -891,6 +938,21 @@ function openExerciseForm(title, ex) {
                     <label class="ex-toggle-opt">
                         <input type="radio" name="ef-type" value="isometric" ${isoChecked}
                             onchange="exFormTypeChanged()"> Isometric
+                    </label>
+                </div>
+            </div>
+            <div class="ex-form-section">
+                <label class="ex-form-label">
+                    Laterality <span class="ex-form-hint">(affects body-weight load)</span>
+                </label>
+                <div class="ex-toggle-row">
+                    <label class="ex-toggle-opt">
+                        <input type="radio" name="ef-laterality" value="bilateral" ${ex.laterality === 'unilateral' ? '' : 'checked'}
+                            onchange="exFormBWPreviewUpdate()"> ${BARBELL_ICON_SVG} Bilateral
+                    </label>
+                    <label class="ex-toggle-opt">
+                        <input type="radio" name="ef-laterality" value="unilateral" ${ex.laterality === 'unilateral' ? 'checked' : ''}
+                            onchange="exFormBWPreviewUpdate()"> ${DUMBBELL_ICON_SVG} Unilateral
                     </label>
                 </div>
             </div>
@@ -1105,6 +1167,10 @@ function exFormApplyLibraryEntry(entry) {
         ? Math.round(entry.heightPct * 100) : '';
     const unitEl = document.getElementById('ef-unit');
     if (unitEl && entry.unit) unitEl.value = entry.unit;
+    // Library entries don't carry a laterality value (yet) — default to
+    // bilateral whenever a library entry is applied.
+    const lateralityInputs = document.querySelectorAll('input[name="ef-laterality"]');
+    lateralityInputs.forEach(inp => { inp.checked = inp.value === (entry.laterality || 'bilateral'); });
     const resultsEl = document.getElementById('ef-lib-results');
     if (resultsEl) resultsEl.innerHTML = '';
     exFormBWPreviewUpdate();
@@ -1152,10 +1218,12 @@ function exFormBWPreviewUpdate() {
     if (!pctEl || !previewEl) return;
     const pct = parseFloat(pctEl.value) / 100 || 0;
     const bw  = getUserWeightInWorkingUnit();
+    const lateralityEl = document.querySelector('input[name="ef-laterality"]:checked');
+    const multiplier = lateralityEl?.value === 'unilateral' ? 2 : 1;
     if (bw === null) {
         previewEl.textContent = '= (enter weight in Settings)';
     } else {
-        previewEl.textContent = `= ${(bw * pct).toFixed(1)} ${userSettings.weightUnit}`;
+        previewEl.textContent = `= ${(bw * pct * multiplier).toFixed(1)} ${userSettings.weightUnit}`;
     }
 }
 
@@ -1306,13 +1374,15 @@ function exFormSave() {
     const autoSeqAllowed = typeVal === 'isometric'
         || (isTimedSet && phaseVal !== 'work' && timedInput === 'none');
     const autoSequence = autoSeqAllowed && autoSeqEl?.value === 'on';
+    const lateralityEl = document.querySelector('input[name="ef-laterality"]:checked');
+    const laterality = lateralityEl ? lateralityEl.value : 'bilateral';
 
     const exObj = {
         name, type: typeVal, phase: phaseVal,
         bodyWeightPct, heightPct, distanceM,
         unit, target, timedInput,
         sets, setRestSec, exerciseRestSec,
-        autoSequence,
+        autoSequence, laterality,
         weights: []
     };
 
@@ -2217,10 +2287,18 @@ function renderExercise() {
     const isCountup = timerMode === 'countup' || timerMode === 'paused-countup';
     const nextLabel = isCountup ? 'Done — Next Set →' : 'Next Set →';
 
+    // Laterality icon shown next to Added Weight — barbell for bilateral
+    // (both sides together), dumbbell for unilateral (one side at a time;
+    // unilateral doubles both the body-weight portion and added weight above).
+    const lateralityIconHtml = lateralityIconSVG(ex);
+    const lateralityTitle = ex.laterality === 'unilateral'
+        ? 'Unilateral — one side at a time'
+        : 'Bilateral — both sides together';
+
     list.innerHTML = `
         <h3>${escHtml(ex.name)}</h3>
         <p class="goal-set-line">Set <span class="set-counter-num">${currentSet}/${ex.sets}</span> — ${goalText}</p>
-        <p class="weight-inline">Body weight load: ${formatBodyWeightForce(ex)} &nbsp;—&nbsp; Added weight (${userSettings.weightUnit}): <input type="number" step="0.5" id="weight-input" value="${ex.weights[setIdx] || ''}" class="weight-inline-input"></p>
+        <p class="weight-inline">Body weight load: ${formatBodyWeightForce(ex)} &nbsp;—&nbsp; <span title="${lateralityTitle}">${lateralityIconHtml}</span> Added weight (${userSettings.weightUnit}): <input type="number" step="0.5" id="weight-input" value="${ex.weights[setIdx] || ''}" class="weight-inline-input"></p>
         ${timedInputHTML}
         <div class="set-btn-row">
             <button class="back-set-btn" onclick="prevSet()">${isFirst ? '✕' : '‹'}</button>
@@ -2387,7 +2465,7 @@ function triggerCSVDownload(csvContent, filename) {
 // ── CSV BACKUP & RESTORE ──────────────────────────────────────────
 // Exports/imports ALL workout programs (not just the active one), so a
 // backup/restore round-trip never silently drops a program.
-const CSV_HEADER = 'program_index,program_name,workout_index,workout_name,exercise_name,type,phase,sets,target,unit,bodyWeightPct,heightPct,distanceM,setRestSec,exerciseRestSec,timedInput,autoSequence';
+const CSV_HEADER = 'program_index,program_name,workout_index,workout_name,exercise_name,type,phase,sets,target,unit,bodyWeightPct,heightPct,distanceM,setRestSec,exerciseRestSec,timedInput,autoSequence,laterality';
 
 function csvEscape(val) {
     const s = String(val);
@@ -2410,12 +2488,12 @@ function exportPlanCSV() {
     const rows = [CSV_HEADER];
     workoutPrograms.forEach((program, pIdx) => {
         if (program.workouts.length === 0) {
-            rows.push([csvEscape(pIdx), csvEscape(program.name), '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
+            rows.push([csvEscape(pIdx), csvEscape(program.name), '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
             return;
         }
         program.workouts.forEach((wo, wIdx) => {
             if (wo.exercises.length === 0) {
-                rows.push([csvEscape(pIdx), csvEscape(program.name), csvEscape(wIdx), csvEscape(wo.name), '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
+                rows.push([csvEscape(pIdx), csvEscape(program.name), csvEscape(wIdx), csvEscape(wo.name), '', '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
             } else {
                 wo.exercises.forEach(ex => {
                     rows.push([
@@ -2435,7 +2513,8 @@ function exportPlanCSV() {
                         csvEscape(ex.setRestSec      ?? 60),
                         csvEscape(ex.exerciseRestSec ?? 90),
                         csvEscape(ex.timedInput      || 'reps'),
-                        csvEscape(ex.autoSequence    ? 'true' : 'false')
+                        csvEscape(ex.autoSequence    ? 'true' : 'false'),
+                        csvEscape(ex.laterality      || 'bilateral')
                     ].join(','));
                 });
             }
@@ -2495,6 +2574,9 @@ function importPlanCSV(event) {
                 const exerciseRestSec = parseInt(cols[ci++]) || 90;
                 const timedInput      = (cols[ci++]?.trim() || 'reps') || 'reps';
                 const autoSequence    = (cols[ci++]?.trim() || 'false') === 'true';
+                // Older CSV exports (pre-laterality) simply won't have this
+                // column — cols[ci] will be undefined and default applies.
+                const laterality      = (cols[ci++]?.trim() || 'bilateral') || 'bilateral';
 
                 if (!programsMap[pIdx]) {
                     programsMap[pIdx] = { name: pName, workoutsMap: {}, workoutOrder: [] };
@@ -2511,7 +2593,7 @@ function importPlanCSV(event) {
                         bodyWeightPct, heightPct, distanceM,
                         setRestSec, exerciseRestSec,
                         sets, target, unit, timedInput,
-                        autoSequence, weights: []
+                        autoSequence, laterality, weights: []
                     });
                 }
             });
@@ -2728,7 +2810,7 @@ function updateSoundUI() {
 }
 
 // ── PROGRESS CSV BACKUP & RESTORE ────────────────────────────────
-const PROGRESS_CSV_HEADER = 'date,workout_name,duration_seconds,weight_unit,height_unit,workout_total_work,workout_total_power,exercise_name,type,phase,sets,target,unit,bodyWeightPct,heightPct,weights,timedInput,user_inputs,set_times,total_work,total_power,total_tension';
+const PROGRESS_CSV_HEADER = 'date,workout_name,duration_seconds,weight_unit,height_unit,workout_total_work,workout_total_power,exercise_name,type,phase,sets,target,unit,bodyWeightPct,heightPct,weights,timedInput,user_inputs,set_times,total_work,total_power,total_tension,laterality';
 
 function exportProgressCSV() {
     if (progressLogs.length === 0) {
@@ -2745,7 +2827,7 @@ function exportProgressCSV() {
         const wkWork  = csvEscape(log.workoutTotalWork  ?? '');
         const wkPower = csvEscape(log.workoutTotalPower ?? '');
         if (!log.exercises || log.exercises.length === 0) {
-            rows.push([date, woName, dur, wu, hu, wkWork, wkPower, '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
+            rows.push([date, woName, dur, wu, hu, wkWork, wkPower, '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
         } else {
             log.exercises.forEach(ex => {
                 const weights    = Array.isArray(ex.weights)    ? ex.weights.join('|')    : '';
@@ -2767,7 +2849,8 @@ function exportProgressCSV() {
                     csvEscape(setTimes),
                     csvEscape(ex.totalWork     ?? ''),
                     csvEscape(ex.totalPower    ?? ''),
-                    csvEscape(ex.totalTension  ?? '')
+                    csvEscape(ex.totalTension  ?? ''),
+                    csvEscape(ex.laterality    || 'bilateral')
                 ].join(','));
             });
         }
@@ -2796,6 +2879,7 @@ function importProgressCSV(event) {
             const isNewFormat    = header.includes('workout_total_work');
             const hasUserInputs  = header.includes('user_inputs');
             const hasSetTimes    = header.includes('set_times');
+            const hasLaterality  = header.includes('laterality');
             const logMap = {}, logOrder = [];
             lines.slice(1).forEach(line => {
                 const cols = parseCSVLine(line);
@@ -2833,6 +2917,7 @@ function importProgressCSV(event) {
                     const tp = cols[ci++]?.trim(); totalPower   = tp !== '' ? parseFloat(tp) : null;
                     const tt = cols[ci++]?.trim(); totalTension = tt !== '' ? parseFloat(tt) : null;
                 }
+                const laterality = hasLaterality ? (cols[ci++]?.trim() || 'bilateral') : 'bilateral';
                 const key = date + '||' + woName;
                 if (!logMap[key]) {
                     logMap[key] = { date, workoutName: woName, duration, weightUnit, heightUnit,
@@ -2842,7 +2927,7 @@ function importProgressCSV(event) {
                 if (exName) {
                     logMap[key].exercises.push({
                         name: exName, type, phase,
-                        bodyWeightPct, heightPct,
+                        bodyWeightPct, heightPct, laterality,
                         sets, target, unit, timedInput, weights, userInputs, setTimes,
                         totalWork, totalPower, totalTension,
                         isIsometric: type === 'isometric'
