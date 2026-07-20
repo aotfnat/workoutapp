@@ -1,6 +1,6 @@
 /* ── styles.css ── iPhone-optimised PWA ──────────────────────────── */
-/* Version 10.1; SOC: Added .ex-tag-uni / .ex-tag-bi styles for the new
-   bilateral/unilateral tag shown in the Plan tab exercise row. */
+/* Version 10.4; SOC: Added .ex-tag-cardio style for the new Cardio/Watt
+   exercise type tag shown in the Plan tab exercise row. */
 
 /* ── Reset & base ──────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
@@ -1507,6 +1507,10 @@ body:has(#workout-section.active) #floating-menu-btn {
 .ex-tag-uni {
     background: rgba(255,159,10,0.18);
     color: #ff9f0a;
+}
+.ex-tag-cardio {
+    background: rgba(10,132,255,0.18);
+    color: #0a84ff;
 }
 
 /* ── Phase 2: Exercise form modal ───────────────────────────────── */

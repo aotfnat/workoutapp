@@ -1,6 +1,6 @@
 // service-worker.js
-// Version 10.2 — Unilateral & Bilateral added
-const CACHE_NAME = 'fitness-app-v10.2';
+// Version 10.4 — Exercise machine Watt intergration
+const CACHE_NAME = 'fitness-app-v10.4';
 
 const BASE = self.location.pathname.replace(/\/service-worker\.js$/, '');
 const urlsToCache = [

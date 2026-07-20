@@ -1,6 +1,9 @@
 // exercise-library.js
-// Version 9.9
-// SOC: added libraryUpdateCustomNotes() so custom exercise notes can be edited from the UI
+// Version 10.4
+// SOC: Added Cardio/Watt (type: 'cardio', inputMode: 'watts') library
+// entries — Exercise Bike (Watts) and Rowing Erg (Watts) — for equipment
+// with a console watts readout, as an alternative to the existing
+// resistance-based Cycling/Rowing entries.
 // ─────────────────────────────────────────────────────────────────────────────
 // Common exercise library with biomechanical defaults.
 //
@@ -435,6 +438,26 @@ const EXERCISE_LIBRARY = [
         heightPct: null,
         unit: 'meters',
         notes: 'BW = 0; uses added resistance + distance (meters)'
+    },
+    {
+        name: 'Exercise Bike (Watts)',
+        category: 'cardio',
+        type: 'cardio',
+        inputMode: 'watts',
+        bodyWeightPct: 0.00,
+        heightPct: null,
+        unit: 'seconds',
+        notes: 'Log average watts directly from the console — body weight is fully supported by the seat, so it is not part of the load'
+    },
+    {
+        name: 'Rowing Erg (Watts)',
+        category: 'cardio',
+        type: 'cardio',
+        inputMode: 'watts',
+        bodyWeightPct: 0.00,
+        heightPct: null,
+        unit: 'seconds',
+        notes: 'Log average watts directly from the console; alternative to the resistance-based "Rowing (Erg)" entry above'
     },
     {
         name: 'Jump Rope',

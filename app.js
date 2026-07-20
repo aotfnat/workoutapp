@@ -1,32 +1,17 @@
 // app.js
-//Version 10.2
-//SOC: Swapped the laterality emoji for inline SVG icons — a barbell
-//     (BARBELL_ICON_SVG) for bilateral, a dumbbell (DUMBBELL_ICON_SVG) for
-//     unilateral — via lateralityIconSVG(), used in the exercise form
-//     toggle, the Plan tab tag, and the Workout tab Added Weight label.
-//     calcForce() now also doubles the added-weight portion (not just the
-//     body-weight portion) for unilateral exercises.
-//Version 10.1
-//SOC: Added bilateral/unilateral toggle to exercise creation (ex.laterality,
-//     default 'bilateral', additive/non-breaking so no SCHEMA_VERSION bump
-//     needed). Unilateral exercises double the body-weight-based portion of
-//     force (one limb now bears what bilateral shares across two) via
-//     calcForce()/getBodyWeightForce(); added weight is unaffected. Added a
-//     laterality toggle in the exercise form (with BW-preview + library-apply
-//     support), a laterality tag in the Plan tab exercise row, and a
-//     laterality icon next to Added Weight in the Workout tab. Plan and
-//     Progress CSV export/import now include a trailing `laterality` column
-//     (old CSVs without it default to bilateral).
-//Version 10.0
-//SOC: Added support for multiple workout programs (e.g. Home Gym / Travel,
-//     Pre-Season / In-Season / Post-Season). workoutPlan/currentWorkoutIndex
-//     now mirror whichever program is active; added renderProgramSelect(),
-//     switchProgram(), addProgram(), renameCurrentProgram(),
-//     deleteCurrentProgram(). Plan CSV export/import now covers ALL
-//     programs (new program_index/program_name columns, backward-compatible
-//     with older single-program CSVs). Bumped SCHEMA_VERSION to 6 — old
-//     localStorage plan/progress data is cleared on first load after update.
-
+//Version 10.4
+//SOC: Removed the Watt-to-Weight calculator. Added a third exercise type,
+//     Cardio/Watt (ex.type === 'cardio'), with an inputMode of 'watts' or
+//     'weight'. Weight-mode behaves exactly like isotonic (existing
+//     bodyWeightPct/distance model). Watts-mode bypasses that model
+//     entirely: the user logs average watts directly from the equipment
+//     console, for either a timed interval (seconds/minutes, countdown)
+//     or a distance target (meters, count-up — Next Set stops the clock
+//     and prompts for watts, mirroring the two-tap flow of timed-isotonic
+//     sets). Work = watts × setTimeSec, Power = watts. Added the matching
+//     inputMode column to both Plan and Progress CSV export/import, a new
+//     ex-tag-cardio Plan-tab tag, and cardio-aware Previous Accomplishment
+//     text (labelled "W" instead of reps/distance).
 
 // ── Schema version guard ─────────────────────────────────────────
 // Bump SCHEMA_VERSION whenever the data model changes in a breaking way.
@@ -654,23 +639,35 @@ function renderPhaseSection(workout, wIdx, phase, label) {
 
 // Render a compact exercise summary row in the plan card
 function renderExerciseRow(ex, wIdx, eIdx) {
+    const isCardioWatts = ex.type === 'cardio' && ex.inputMode === 'watts';
+
     const typeTag  = ex.type === 'isometric'
         ? '<span class="ex-tag ex-tag-iso">ISO</span>'
-        : '<span class="ex-tag ex-tag-ton">TON</span>';
+        : ex.type === 'cardio'
+            ? `<span class="ex-tag ex-tag-cardio">${ex.inputMode === 'watts' ? '⚡ WATT' : 'CARDIO'}</span>`
+            : '<span class="ex-tag ex-tag-ton">TON</span>';
 
-    const lateralityTag = ex.laterality === 'unilateral'
-        ? `<span class="ex-tag ex-tag-uni" title="Unilateral — one side at a time">${DUMBBELL_ICON_SVG} UNI</span>`
-        : `<span class="ex-tag ex-tag-bi" title="Bilateral — both sides together">${BARBELL_ICON_SVG} BI</span>`;
+    const lateralityTag = isCardioWatts
+        ? ''
+        : (ex.laterality === 'unilateral'
+            ? `<span class="ex-tag ex-tag-uni" title="Unilateral — one side at a time">${DUMBBELL_ICON_SVG} UNI</span>`
+            : `<span class="ex-tag ex-tag-bi" title="Bilateral — both sides together">${BARBELL_ICON_SVG} BI</span>`);
 
     const bwForce = getBodyWeightForce(ex);
-    const bwText  = bwForce !== null
-        ? `${bwForce.toFixed(1)} ${userSettings.weightUnit} BW`
-        : '⚠ set weight';
+    const bwText  = isCardioWatts
+        ? '⚡ watts-based'
+        : (bwForce !== null ? `${bwForce.toFixed(1)} ${userSettings.weightUnit} BW` : '⚠ set weight');
 
     let targetText = '';
     const timedLogLabel = ex.timedInput === 'distance' ? 'dist' : (ex.timedInput === 'none' ? 'no log' : 'reps');
     if (ex.type === 'isometric') {
         targetText = `${ex.target}s × ${ex.sets} sets`;
+    } else if (isCardioWatts) {
+        targetText = ex.unit === 'meters'
+            ? `${ex.distanceM || ex.target}m target, log watts × ${ex.sets} sets`
+            : ex.unit === 'minutes'
+                ? `${ex.target}min, log watts × ${ex.sets} sets`
+                : `${ex.target}s, log watts × ${ex.sets} sets`;
     } else if (ex.unit === 'reps') {
         targetText = `${ex.target} reps × ${ex.sets} sets`;
     } else if (ex.unit === 'meters') {
@@ -696,13 +693,15 @@ function renderExerciseRow(ex, wIdx, eIdx) {
             data-widx="${wIdx}" data-eidx="${eIdx}" data-phase="${ex.phase || 'work'}">
             <div class="plan-ex-main">
                 <span class="ex-drag-handle" title="Drag to reorder">⠿</span>
-                ${typeTag}
-                ${lateralityTag}
                 <span class="plan-ex-name">${escHtml(ex.name)}</span>
                 <button class="icon-btn plan-ex-edit-btn" onclick="editExercise(${wIdx}, ${eIdx})" title="Edit">✏️</button>
                 <button class="icon-btn danger" onclick="removeExercise(${wIdx}, ${eIdx})" title="Remove">✕</button>
             </div>
-            <div class="plan-ex-detail">${targetText} · ${bwText}</div>
+            <div class="plan-ex-detail" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                <span>${targetText} · ${bwText}</span>
+                ${typeTag}
+                ${lateralityTag}
+            </div>
             <div class="plan-ex-rest">${restText}</div>
         </div>
     `;
@@ -862,8 +861,14 @@ function editExercise(wIdx, eIdx) {
 function openExerciseForm(title, ex) {
     exModalSetTitle(title);
 
-    const isoChecked  = ex.type === 'isometric' ? 'checked' : '';
-    const tonChecked  = ex.type !== 'isometric' ? 'checked' : '';
+    const isoChecked    = ex.type === 'isometric' ? 'checked' : '';
+    const cardioChecked = ex.type === 'cardio' ? 'checked' : '';
+    const tonChecked    = (ex.type !== 'isometric' && ex.type !== 'cardio') ? 'checked' : '';
+
+    const inputModeVal      = ex.inputMode === 'weight' ? 'weight' : 'watts';
+    const wattsModeChecked  = inputModeVal === 'watts'  ? 'checked' : '';
+    const weightModeChecked = inputModeVal === 'weight' ? 'checked' : '';
+    const isCardioWatts     = ex.type === 'cardio' && inputModeVal === 'watts';
 
     const phases = [
         { val: 'warmup',   label: '🌡 Warmup' },
@@ -874,16 +879,30 @@ function openExerciseForm(title, ex) {
         `<option value="${p.val}" ${(ex.phase || 'work') === p.val ? 'selected' : ''}>${p.label}</option>`
     ).join('');
 
+    // Unit options depend on type + inputMode: isometric is always seconds;
+    // Cardio/Watt watts-mode offers timed intervals or a distance target
+    // (no reps — there's nothing to count, only watts to log); isotonic and
+    // Cardio/Watt weight-mode share the full isotonic unit set.
     const unitOpts = ex.type === 'isometric'
         ? `<option value="seconds" selected>Seconds</option>`
-        : `
-            <option value="reps"    ${ex.unit === 'reps'    ? 'selected' : ''}>Reps</option>
-            <option value="seconds" ${ex.unit === 'seconds' ? 'selected' : ''}>Seconds (timed set)</option>
-            <option value="minutes" ${ex.unit === 'minutes' ? 'selected' : ''}>Minutes (timed set)</option>
-            <option value="meters"  ${ex.unit === 'meters'  ? 'selected' : ''}>Meters (distance)</option>
-          `;
+        : isCardioWatts
+            ? `
+                <option value="seconds" ${ex.unit === 'seconds' ? 'selected' : ''}>Seconds (timed)</option>
+                <option value="minutes" ${ex.unit === 'minutes' ? 'selected' : ''}>Minutes (timed)</option>
+                <option value="meters"  ${ex.unit === 'meters'  ? 'selected' : ''}>Meters (distance target)</option>
+              `
+            : `
+                <option value="reps"    ${ex.unit === 'reps'    ? 'selected' : ''}>Reps</option>
+                <option value="seconds" ${ex.unit === 'seconds' ? 'selected' : ''}>Seconds (timed set)</option>
+                <option value="minutes" ${ex.unit === 'minutes' ? 'selected' : ''}>Minutes (timed set)</option>
+                <option value="meters"  ${ex.unit === 'meters'  ? 'selected' : ''}>Meters (distance)</option>
+              `;
 
-    const isTimedSet = ex.type !== 'isometric' && (ex.unit === 'seconds' || ex.unit === 'minutes');
+    // "Timed set" reps/distance/none logging choice only applies to
+    // isotonic and Cardio/Watt weight-mode — Cardio/Watt watts-mode always
+    // logs average watts instead, via its own prompt in the workout tab.
+    const isTimedSet = (ex.type === 'isotonic' || (ex.type === 'cardio' && !isCardioWatts))
+        && (ex.unit === 'seconds' || ex.unit === 'minutes');
     const timedVis   = isTimedSet ? '' : 'display:none';
     const currentPhase     = ex.phase || 'work';
     const timedInputVal    = ex.timedInput || 'reps';
@@ -897,8 +916,18 @@ function openExerciseForm(title, ex) {
         || (isTimedSet && currentPhase !== 'work' && timedInputVal === 'none');
 
     const isDistanceBased = ex.unit === 'meters';
-    const heightVis = (ex.type !== 'isometric' && !isDistanceBased) ? '' : 'display:none';
+    // Height % is irrelevant for Cardio/Watt watts-mode (no distance/rep
+    // model at all) and for distance-based exercises generally.
+    const heightVis = (ex.type !== 'isometric' && !isCardioWatts && !isDistanceBased) ? '' : 'display:none';
+    // Distance field shows for any distance-based exercise, including
+    // Cardio/Watt watts-mode where it doubles as the on-screen target the
+    // user watches for on the equipment (not used in the Work/Power math).
     const distanceVis = isDistanceBased ? '' : 'display:none';
+    // Target (numeric reps/duration) is redundant with Distance when in
+    // Cardio/Watt watts-mode + meters — hide it entirely in that case.
+    const targetSectionVis = (isCardioWatts && isDistanceBased) ? 'display:none' : '';
+    const bwSectionVis = isCardioWatts ? 'display:none' : '';
+    const lateralitySectionVis = isCardioWatts ? 'display:none' : '';
 
     const bwForce = getBodyWeightForce(ex);
     const bwPreview = bwForce !== null
@@ -931,17 +960,36 @@ function openExerciseForm(title, ex) {
             <div class="ex-form-section">
                 <label class="ex-form-label">Exercise type</label>
                 <div class="ex-toggle-row">
-                    <label class="ex-toggle-opt">
+                    <label class="ex-toggle-opt" style="font-size:13px;padding:12px 4px;">
                         <input type="radio" name="ef-type" value="isotonic" ${tonChecked}
                             onchange="exFormTypeChanged()"> Isotonic
                     </label>
-                    <label class="ex-toggle-opt">
+                    <label class="ex-toggle-opt" style="font-size:13px;padding:12px 4px;">
                         <input type="radio" name="ef-type" value="isometric" ${isoChecked}
                             onchange="exFormTypeChanged()"> Isometric
                     </label>
+                    <label class="ex-toggle-opt" style="font-size:13px;padding:12px 4px;">
+                        <input type="radio" name="ef-type" value="cardio" ${cardioChecked}
+                            onchange="exFormTypeChanged()"> ⚡ Cardio/Watt
+                    </label>
                 </div>
             </div>
-            <div class="ex-form-section">
+            <div id="ef-inputmode-section" class="ex-form-section" style="${ex.type === 'cardio' ? '' : 'display:none'}">
+                <label class="ex-form-label">
+                    Input mode <span class="ex-form-hint">(how you'll log each set)</span>
+                </label>
+                <div class="ex-toggle-row">
+                    <label class="ex-toggle-opt">
+                        <input type="radio" name="ef-inputmode" value="watts" ${wattsModeChecked}
+                            onchange="exFormInputModeChanged()"> ⚡ Watts
+                    </label>
+                    <label class="ex-toggle-opt">
+                        <input type="radio" name="ef-inputmode" value="weight" ${weightModeChecked}
+                            onchange="exFormInputModeChanged()"> 🏋 Weight/Resistance
+                    </label>
+                </div>
+            </div>
+            <div id="ef-laterality-section" class="ex-form-section" style="${lateralitySectionVis}">
                 <label class="ex-form-label">
                     Laterality <span class="ex-form-hint">(affects body-weight load)</span>
                 </label>
@@ -960,7 +1008,7 @@ function openExerciseForm(title, ex) {
                 <label class="ex-form-label" for="ef-phase">Phase</label>
                 <select id="ef-phase" class="ex-form-select" onchange="exFormPhaseChanged()">${phaseOpts}</select>
             </div>
-            <div class="ex-form-section">
+            <div id="ef-bwpct-section" class="ex-form-section" style="${bwSectionVis}">
                 <label class="ex-form-label" for="ef-bwpct">
                     Body weight % <span class="ex-form-hint">(0–100)</span>
                 </label>
@@ -989,7 +1037,7 @@ function openExerciseForm(title, ex) {
             </div>
             <div id="ef-distance-section" class="ex-form-section" style="${distanceVis}">
                 <label class="ex-form-label" for="ef-distance">
-                    Distance <span class="ex-form-hint">(meters)</span>
+                    Distance <span class="ex-form-hint">${isCardioWatts ? '(meters — shown as the target during the workout)' : '(meters)'}</span>
                 </label>
                 <div class="ex-form-row">
                     <input id="ef-distance" class="ex-num-input" type="number"
@@ -1004,7 +1052,7 @@ function openExerciseForm(title, ex) {
                 <label class="ex-form-label" for="ef-unit">Active period measured in</label>
                 <select id="ef-unit" class="ex-form-select" onchange="exFormUnitChanged()">${unitOpts}</select>
             </div>
-            <div class="ex-form-section">
+            <div id="ef-target-section" class="ex-form-section" style="${targetSectionVis}">
                 <label class="ex-form-label" for="ef-target" id="ef-target-label">
                     Target <span class="ex-form-hint" id="ef-target-hint"></span>
                 </label>
@@ -1122,12 +1170,15 @@ function exFormLibrarySearch(query) {
             : `<div id="${noteId}" style="display:none;margin-top:4px;">
                    <p class="ex-form-hint" style="margin:0;">${escHtml(m.notes || 'No notes available.')}</p>
                </div>`;
+        const metaText = (m.type === 'cardio' && m.inputMode === 'watts')
+            ? `${m.category} · ⚡ Watts mode`
+            : `${m.category} · BW ${Math.round(m.bodyWeightPct * 100)}%${m.heightPct !== null && m.heightPct !== undefined ? ` · H ${Math.round(m.heightPct * 100)}%` : ''}`;
         return `
         <div style="display:flex;flex-direction:column;">
             <div style="display:flex;align-items:center;gap:6px;">
                 <button class="ex-lib-result-btn" style="flex:1;" onclick="exFormApplyLibraryEntry(${JSON.stringify(m).replace(/"/g, '&quot;')})">
                     <span class="ex-lib-name">${escHtml(m.name)}${customBadge}</span>
-                    <span class="ex-lib-meta">${m.category} · BW ${Math.round(m.bodyWeightPct * 100)}%${m.heightPct !== null && m.heightPct !== undefined ? ` · H ${Math.round(m.heightPct * 100)}%` : ''}</span>
+                    <span class="ex-lib-meta">${metaText}</span>
                 </button>
                 <button class="icon-btn" title="Show notes" onclick="event.stopPropagation();toggleLibNotes('${noteId}')">ⓘ</button>
                 ${deleteBtnHtml}
@@ -1160,6 +1211,8 @@ function exFormApplyLibraryEntry(entry) {
     if (nameEl) nameEl.value = entry.name;
     const typeInputs = document.querySelectorAll('input[name="ef-type"]');
     typeInputs.forEach(inp => { inp.checked = inp.value === entry.type; });
+    const inputModeInputs = document.querySelectorAll('input[name="ef-inputmode"]');
+    inputModeInputs.forEach(inp => { inp.checked = inp.value === (entry.inputMode || 'watts'); });
     const bwEl = document.getElementById('ef-bwpct');
     if (bwEl) bwEl.value = Math.round((entry.bodyWeightPct ?? 0) * 100);
     const hEl = document.getElementById('ef-heightpct');
@@ -1176,6 +1229,13 @@ function exFormApplyLibraryEntry(entry) {
     exFormBWPreviewUpdate();
     exFormUpdateTargetLabel();
     exFormTypeChanged();
+    // exFormTypeChanged() rebuilds the unit <select> options, which wipes
+    // out the value we set above — re-apply it now that the correct option
+    // set (isometric / cardio-watts / isotonic) is in place.
+    if (unitEl && entry.unit) {
+        const hasOpt = [...unitEl.options].some(o => o.value === entry.unit);
+        if (hasOpt) { unitEl.value = entry.unit; exFormUnitChanged(); }
+    }
 }
 
 // Save the current form values as a custom library entry
@@ -1183,6 +1243,7 @@ function saveCurrentAsCustom() {
     const name = document.getElementById('ef-name')?.value.trim();
     if (!name) { alert('Enter an exercise name first.'); return; }
     const typeVal  = document.querySelector('input[name="ef-type"]:checked')?.value || 'isotonic';
+    const inputModeVal = document.querySelector('input[name="ef-inputmode"]:checked')?.value || 'watts';
     const bwPct    = Math.min(Math.max((parseFloat(document.getElementById('ef-bwpct')?.value) || 0) / 100, 0), 1);
     const hPctRaw  = document.getElementById('ef-heightpct')?.value;
     const heightPct = (hPctRaw !== undefined && hPctRaw !== '') ? (parseFloat(hPctRaw) / 100 || null) : null;
@@ -1195,6 +1256,7 @@ function saveCurrentAsCustom() {
         distanceM: null, unit,
         notes: 'Custom exercise'
     };
+    if (typeVal === 'cardio') entry.inputMode = inputModeVal;
     libraryAddCustom(entry);
     alert(`✅ "${name}" saved to your custom library!`);
     exFormLibrarySearch(name);
@@ -1231,10 +1293,18 @@ function exFormTypeChanged() {
     const typeVal = document.querySelector('input[name="ef-type"]:checked')?.value || 'isotonic';
     const unitEl  = document.getElementById('ef-unit');
     if (!unitEl) return;
-    const autoSeqSec = document.getElementById('ef-autoseq-section');
+    const prevUnit      = unitEl.value;
+    const autoSeqSec    = document.getElementById('ef-autoseq-section');
+    const inputModeSec  = document.getElementById('ef-inputmode-section');
+    const bwSec         = document.getElementById('ef-bwpct-section');
+    const lateralitySec = document.getElementById('ef-laterality-section');
+
     if (typeVal === 'isometric') {
         unitEl.innerHTML = `<option value="seconds" selected>Seconds</option>`;
         unitEl.disabled = true;
+        if (inputModeSec) inputModeSec.style.display = 'none';
+        if (bwSec) bwSec.style.display = '';
+        if (lateralitySec) lateralitySec.style.display = '';
         const hSec = document.getElementById('ef-height-section');
         const dSec = document.getElementById('ef-distance-section');
         const tSec = document.getElementById('ef-timed-section');
@@ -1242,35 +1312,103 @@ function exFormTypeChanged() {
         if (dSec) dSec.style.display = 'none';
         if (tSec) tSec.style.display = 'none';
         if (autoSeqSec) autoSeqSec.style.display = '';
-    } else {
+    } else if (typeVal === 'cardio') {
         unitEl.disabled = false;
-        if (unitEl.options.length === 1 && unitEl.options[0].value === 'seconds') {
+        if (autoSeqSec) autoSeqSec.style.display = 'none';
+        if (inputModeSec) inputModeSec.style.display = '';
+        // Default to Watts mode the first time an exercise is switched to Cardio
+        if (!document.querySelector('input[name="ef-inputmode"]:checked')) {
+            const wattsRadio = document.querySelector('input[name="ef-inputmode"][value="watts"]');
+            if (wattsRadio) wattsRadio.checked = true;
+        }
+        exFormInputModeChanged();
+        return; // exFormInputModeChanged already rebuilds units + refreshes visibility/labels
+    } else {
+        // isotonic
+        unitEl.disabled = false;
+        if (inputModeSec) inputModeSec.style.display = 'none';
+        if (bwSec) bwSec.style.display = '';
+        if (lateralitySec) lateralitySec.style.display = '';
+        unitEl.innerHTML = `
+            <option value="reps">Reps</option>
+            <option value="seconds">Seconds (timed set)</option>
+            <option value="minutes">Minutes (timed set)</option>
+            <option value="meters">Meters (distance)</option>
+        `;
+        if (prevUnit && [...unitEl.options].some(o => o.value === prevUnit)) unitEl.value = prevUnit;
+        if (autoSeqSec) autoSeqSec.style.display = 'none';
+    }
+    exFormUpdateTargetLabel();
+    exFormRefreshTimedOptions();
+    exFormUnitChanged();
+}
+
+// Called when the Cardio/Watt Input Mode toggle changes (Watts vs
+// Weight/Resistance). Rebuilds the unit dropdown for the new mode
+// (preserving the current unit selection where it's still valid) and
+// shows/hides body-weight % and laterality, which only apply in weight mode.
+function exFormInputModeChanged() {
+    const unitEl = document.getElementById('ef-unit');
+    const prevUnit = unitEl?.value;
+    const inputModeVal = document.querySelector('input[name="ef-inputmode"]:checked')?.value || 'watts';
+    const bwSec         = document.getElementById('ef-bwpct-section');
+    const lateralitySec = document.getElementById('ef-laterality-section');
+
+    if (unitEl) {
+        if (inputModeVal === 'watts') {
             unitEl.innerHTML = `
-                <option value="reps" selected>Reps</option>
+                <option value="seconds">Seconds (timed)</option>
+                <option value="minutes">Minutes (timed)</option>
+                <option value="meters">Meters (distance target)</option>
+            `;
+        } else {
+            unitEl.innerHTML = `
+                <option value="reps">Reps</option>
                 <option value="seconds">Seconds (timed set)</option>
                 <option value="minutes">Minutes (timed set)</option>
                 <option value="meters">Meters (distance)</option>
             `;
         }
-        if (autoSeqSec) autoSeqSec.style.display = 'none';
-        exFormUnitChanged();
+        if (prevUnit && [...unitEl.options].some(o => o.value === prevUnit)) {
+            unitEl.value = prevUnit;
+        }
     }
+    if (bwSec) bwSec.style.display = (inputModeVal === 'watts') ? 'none' : '';
+    if (lateralitySec) lateralitySec.style.display = (inputModeVal === 'watts') ? 'none' : '';
+
     exFormUpdateTargetLabel();
     exFormRefreshTimedOptions();
+    exFormUnitChanged();
 }
 
 function exFormUnitChanged() {
     const unitVal = document.getElementById('ef-unit')?.value || 'reps';
     const typeVal = document.querySelector('input[name="ef-type"]:checked')?.value || 'isotonic';
+    const inputModeVal = document.querySelector('input[name="ef-inputmode"]:checked')?.value || 'watts';
     const hSec    = document.getElementById('ef-height-section');
     const dSec    = document.getElementById('ef-distance-section');
     const tSec    = document.getElementById('ef-timed-section');
+    const targetSec = document.getElementById('ef-target-section');
     if (typeVal === 'isometric') return;
+
+    const isCardioWatts = typeVal === 'cardio' && inputModeVal === 'watts';
     const isDistance = unitVal === 'meters';
     const isTimed    = unitVal === 'seconds' || unitVal === 'minutes';
-    if (hSec) hSec.style.display = (!isDistance) ? '' : 'none';
-    if (dSec) dSec.style.display = isDistance ? '' : 'none';
-    if (tSec) tSec.style.display = isTimed ? '' : 'none';
+
+    if (isCardioWatts) {
+        // No bodyweight/height model at all — distance (when chosen) is
+        // shown only as an on-screen target, and there's no reps/distance
+        // logging choice since the watts prompt replaces it entirely.
+        if (hSec) hSec.style.display = 'none';
+        if (dSec) dSec.style.display = isDistance ? '' : 'none';
+        if (tSec) tSec.style.display = 'none';
+        if (targetSec) targetSec.style.display = isDistance ? 'none' : '';
+    } else {
+        if (hSec) hSec.style.display = (!isDistance) ? '' : 'none';
+        if (dSec) dSec.style.display = isDistance ? '' : 'none';
+        if (tSec) tSec.style.display = isTimed ? '' : 'none';
+        if (targetSec) targetSec.style.display = '';
+    }
     exFormUpdateTargetLabel();
     exFormRefreshAutoSeq();
 }
@@ -1303,15 +1441,19 @@ function exFormTimedInputChanged() {
 }
 
 // Auto-sequence is available for isometric exercises (always), and for
-// timed-isotonic exercises in Warmup/Cooldown when "None" logging is chosen.
+// timed-isotonic exercises (isotonic, or Cardio/Watt weight-mode) in
+// Warmup/Cooldown when "None" logging is chosen. Not offered for Cardio/Watt
+// watts-mode, which always logs average watts via its own prompt.
 function exFormRefreshAutoSeq() {
     const autoSeqSec = document.getElementById('ef-autoseq-section');
     if (!autoSeqSec) return;
     const typeVal  = document.querySelector('input[name="ef-type"]:checked')?.value || 'isotonic';
+    const inputModeVal = document.querySelector('input[name="ef-inputmode"]:checked')?.value || 'watts';
     const phaseVal = document.getElementById('ef-phase')?.value || 'work';
     const unitVal  = document.getElementById('ef-unit')?.value || 'reps';
     const timedInputVal = document.querySelector('input[name="ef-timed-input"]:checked')?.value || 'reps';
-    const isTimedSet = typeVal !== 'isometric' && (unitVal === 'seconds' || unitVal === 'minutes');
+    const isCardioWatts = typeVal === 'cardio' && inputModeVal === 'watts';
+    const isTimedSet = typeVal !== 'isometric' && !isCardioWatts && (unitVal === 'seconds' || unitVal === 'minutes');
     const show = typeVal === 'isometric'
         || (isTimedSet && phaseVal !== 'work' && timedInputVal === 'none');
     autoSeqSec.style.display = show ? '' : 'none';
@@ -1345,11 +1487,13 @@ function exFormSave() {
         return;
     }
     const typeVal    = document.querySelector('input[name="ef-type"]:checked')?.value || 'isotonic';
+    const inputModeVal = document.querySelector('input[name="ef-inputmode"]:checked')?.value || 'watts';
+    const isCardioWatts = typeVal === 'cardio' && inputModeVal === 'watts';
     const phaseVal   = document.getElementById('ef-phase')?.value || _exModal.phase || 'work';
     const bwPctRaw   = parseFloat(document.getElementById('ef-bwpct')?.value) || 0;
-    const bodyWeightPct = Math.min(Math.max(bwPctRaw / 100, 0), 1);
+    const bodyWeightPct = isCardioWatts ? 0 : Math.min(Math.max(bwPctRaw / 100, 0), 1);
     const hPctEl  = document.getElementById('ef-heightpct');
-    const heightPct = hPctEl && hPctEl.closest('.ex-form-section').style.display !== 'none'
+    const heightPct = (!isCardioWatts && hPctEl && hPctEl.closest('.ex-form-section').style.display !== 'none')
         ? (parseFloat(hPctEl.value) / 100 || null)
         : null;
     const distEl   = document.getElementById('ef-distance');
@@ -1359,23 +1503,29 @@ function exFormSave() {
     const unit     = typeVal === 'isometric'
         ? 'seconds'
         : (document.getElementById('ef-unit')?.value || 'reps');
-    const target   = parseInt(document.getElementById('ef-target')?.value) || 10;
+    let target   = parseInt(document.getElementById('ef-target')?.value) || 10;
+    // Cardio/Watt watts-mode + meters: the Target field is hidden (distance
+    // IS the target) — store distanceM there too so other code that reads
+    // ex.target as a display fallback still shows something sensible.
+    if (isCardioWatts && unit === 'meters') target = distanceM || target;
     const timedInputEl = document.querySelector('input[name="ef-timed-input"]:checked');
     let timedInput   = timedInputEl ? timedInputEl.value : 'reps';
     // Safety net: "None" logging is only valid for Warmup/Cooldown timed-isotonic sets.
     if (timedInput === 'none' && (typeVal === 'isometric' || phaseVal === 'work')) timedInput = 'reps';
+    if (isCardioWatts) timedInput = 'reps'; // unused for watts mode — kept for schema consistency
     const sets          = parseInt(document.getElementById('ef-sets')?.value) || 3;
     const setRestSec    = parseInt(document.getElementById('ef-set-rest')?.value) ?? 60;
     const exerciseRestSec = parseInt(document.getElementById('ef-ex-rest')?.value) ?? 90;
     // Auto-sequence is meaningful for isometric exercises (always), and for
     // timed-isotonic Warmup/Cooldown exercises where the user logs nothing.
-    const isTimedSet  = typeVal !== 'isometric' && (unit === 'seconds' || unit === 'minutes');
+    // Not offered for Cardio/Watt watts-mode.
+    const isTimedSet  = typeVal !== 'isometric' && !isCardioWatts && (unit === 'seconds' || unit === 'minutes');
     const autoSeqEl   = document.querySelector('input[name="ef-autoseq"]:checked');
     const autoSeqAllowed = typeVal === 'isometric'
         || (isTimedSet && phaseVal !== 'work' && timedInput === 'none');
     const autoSequence = autoSeqAllowed && autoSeqEl?.value === 'on';
     const lateralityEl = document.querySelector('input[name="ef-laterality"]:checked');
-    const laterality = lateralityEl ? lateralityEl.value : 'bilateral';
+    const laterality = isCardioWatts ? 'bilateral' : (lateralityEl ? lateralityEl.value : 'bilateral');
 
     const exObj = {
         name, type: typeVal, phase: phaseVal,
@@ -1385,6 +1535,7 @@ function exFormSave() {
         autoSequence, laterality,
         weights: []
     };
+    if (typeVal === 'cardio') exObj.inputMode = inputModeVal;
 
     const { wIdx, editIdx } = _exModal;
     if (editIdx !== null && editIdx !== undefined) {
@@ -1657,9 +1808,18 @@ function getPreviousAccomplishment(exName, setIndex) {
         const date = new Date(log.date).toLocaleDateString();
         const wu   = log.weightUnit || userSettings.weightUnit;
 
-        // Timed isotonic sets (seconds/minutes): show what was logged after the timer ended (reps or distance)
+        // Cardio/Watt (watts mode): what was logged is average watts, not
+        // reps/distance — label it distinctly rather than mislabeling it
+        // "reps" the way the generic timed-isotonic branch below would.
         let accomplished = null, accomplishedLabel = '';
-        if (found.type !== 'isometric' && (found.unit === 'seconds' || found.unit === 'minutes')) {
+        if (found.type === 'cardio' && found.inputMode === 'watts') {
+            const val = found.userInputs?.[setIndex];
+            if (val !== undefined && val !== null && val !== 0) {
+                accomplished = val;
+                accomplishedLabel = 'W';
+            }
+        } else if (found.type !== 'isometric' && (found.unit === 'seconds' || found.unit === 'minutes')) {
+            // Timed isotonic sets (seconds/minutes): show what was logged after the timer ended (reps or distance)
             const val = found.userInputs?.[setIndex];
             if (val !== undefined && val !== null && val !== 0) {
                 accomplished = val;
@@ -1988,6 +2148,16 @@ function startActiveTimer() {
     if (ex.type === 'isometric') {
         // Countdown for isometric (always seconds)
         runCountdownTimer(ex.target);
+    } else if (ex.type === 'cardio' && ex.inputMode === 'watts' && ex.unit === 'meters') {
+        // Cardio/Watt distance target: count-up, stops when the user taps
+        // Next Set after reaching the target distance on the equipment.
+        runCountupTimer();
+    } else if (ex.type === 'cardio' && ex.inputMode === 'watts' && ex.unit === 'minutes') {
+        // Cardio/Watt timed interval: countdown, then prompt for avg watts.
+        runCountdownTimer(ex.target * 60);
+    } else if (ex.type === 'cardio' && ex.inputMode === 'watts') {
+        // Cardio/Watt timed interval (seconds): countdown, then prompt for avg watts.
+        runCountdownTimer(ex.target);
     } else if (ex.unit === 'reps' || ex.unit === 'meters') {
         // Count-up: stops when user presses Next Set
         runCountupTimer();
@@ -2090,20 +2260,44 @@ function nextSet() {
 
     const ex = currentWorkout[currentExerciseIndex];
     const setIdx = currentSet - 1;
+    const isCardioWatts = ex.type === 'cardio' && ex.inputMode === 'watts';
 
-    // Save added weight
-    ex.weights[setIdx] = parseFloat(document.getElementById('weight-input')?.value) || 0;
+    // Cardio/Watt distance target: first tap on Next Set stops the count-up
+    // timer and switches to a "log average watts" prompt instead of
+    // advancing immediately. The second tap (below) reads the watts value
+    // and actually advances the set.
+    if (isCardioWatts && ex.unit === 'meters' && (timerMode === 'countup' || timerMode === 'paused-countup')) {
+        const setTimeSec = setStartTime ? Math.round((Date.now() - setStartTime) / 1000) : timerElapsed;
+        ex.setTimes[setIdx] = setTimeSec;
+        setStartTime = null;
+        clearInterval(timerInterval);
+        timerInterval = null;
+        timerMode = 'waiting-input';
+        updateHudTimerDisplay();
+        renderExercise();
+        return;
+    }
 
-    // For count-up exercises, record the elapsed time now
-    if (timerMode === 'countup' || timerMode === 'paused-countup') {
+    // Save added weight — not applicable to cardio/watts mode (no added
+    // weight input is rendered for it), so skip reading a nonexistent field.
+    if (!isCardioWatts) {
+        ex.weights[setIdx] = parseFloat(document.getElementById('weight-input')?.value) || 0;
+    }
+
+    // For count-up isotonic exercises (reps/meters), record elapsed time now
+    if (!isCardioWatts && (timerMode === 'countup' || timerMode === 'paused-countup')) {
         const setTimeSec = setStartTime ? Math.round((Date.now() - setStartTime) / 1000) : timerElapsed;
         ex.setTimes[setIdx] = setTimeSec;
         setStartTime = null;
     }
 
-    // For timed-isotonic (waiting-input), save the reps/distance the user entered
+    // Cardio/Watt: read the logged average watts for this set
+    if (isCardioWatts) {
+        ex.userInputs[setIdx] = parseFloat(document.getElementById('cardio-watts-input')?.value) || 0;
+    }
+    // Timed-isotonic (waiting-input), save the reps/distance the user entered
     // — skipped entirely when "None" logging is selected (no input field is shown)
-    if (ex.type !== 'isometric' && (ex.unit === 'seconds' || ex.unit === 'minutes') && ex.timedInput !== 'none') {
+    else if (ex.type !== 'isometric' && (ex.unit === 'seconds' || ex.unit === 'minutes') && ex.timedInput !== 'none') {
         const inputVal = parseFloat(document.getElementById('timed-user-input')?.value) || 0;
         ex.userInputs[setIdx] = inputVal;
     }
@@ -2115,6 +2309,8 @@ function nextSet() {
         let repsOrDist  = 0;
         if (ex.type === 'isometric') {
             repsOrDist = 0;
+        } else if (isCardioWatts) {
+            repsOrDist = ex.userInputs[setIdx];
         } else if (ex.unit === 'reps') {
             repsOrDist = ex.target; // reps per set from plan
         } else if (ex.unit === 'meters') {
@@ -2215,11 +2411,20 @@ function renderExercise() {
 
     const isFirst   = currentExerciseIndex === 0 && currentSet === 1;
     const isLastSet = currentExerciseIndex === currentWorkout.length - 1 && currentSet === ex.sets;
+    const isCardioWatts = ex.type === 'cardio' && ex.inputMode === 'watts';
 
     // Goal line
     let goalText = '';
     if (ex.type === 'isometric') {
         goalText = `Tension Load: ${ex.target}s hold`;
+    } else if (isCardioWatts) {
+        if (ex.unit === 'meters') {
+            goalText = `Distance: ${ex.distanceM || ex.target}m — log avg watts after`;
+        } else if (ex.unit === 'minutes') {
+            goalText = `Timed: ${ex.target} min — log avg watts after`;
+        } else {
+            goalText = `Timed: ${ex.target}s — log avg watts after`;
+        }
     } else if (ex.unit === 'reps') {
         goalText = `Target: ${ex.target} reps`;
     } else if (ex.unit === 'seconds') {
@@ -2239,8 +2444,9 @@ function renderExercise() {
     const phaseBadge = phaseBadgeMap[ex.phase || 'work'] || '';
 
     // Timed-isotonic input (shown in waiting-input mode) — not shown when
-    // "None" logging is selected, since there's nothing to log
-    const isTimedIsotonic = ex.type !== 'isometric' && (ex.unit === 'seconds' || ex.unit === 'minutes');
+    // "None" logging is selected, since there's nothing to log. Cardio/Watt
+    // exercises use their own watts prompt below instead of this one.
+    const isTimedIsotonic = ex.type !== 'isometric' && !isCardioWatts && (ex.unit === 'seconds' || ex.unit === 'minutes');
     const needsTimedInput = timerMode === 'waiting-input' && isTimedIsotonic && ex.timedInput !== 'none';
     const needsTimedNoneConfirm = timerMode === 'waiting-input' && isTimedIsotonic && ex.timedInput === 'none';
     const timedInputLabel = ex.timedInput === 'distance'
@@ -2269,6 +2475,26 @@ function renderExercise() {
         ? `<p class="timed-input-label">✅ Hold complete! Update added weight, then tap Next Set.</p>`
         : '';
 
+    // Cardio/Watt: reminder banner while the distance-target count-up is
+    // running, and the average-watts prompt once the set has been stopped
+    // (either by the countdown finishing, for timed intervals, or by the
+    // user tapping Next Set after reaching the target distance).
+    const cardioActiveDistanceBanner = (isCardioWatts && ex.unit === 'meters' && (timerMode === 'countup' || timerMode === 'paused-countup'))
+        ? `<p class="timed-input-label">🚴 Target distance: ${ex.distanceM || ex.target}m — tap Next Set when you reach it on the equipment.</p>`
+        : '';
+    const needsCardioWattsInput = isCardioWatts && timerMode === 'waiting-input';
+    const cardioWattsHTML = needsCardioWattsInput
+        ? `<div class="timed-input-block">
+               <p class="timed-input-label">⚡ ${ex.unit === 'meters' ? 'Distance reached!' : 'Time complete!'} Log your average watts:</p>
+               <label>Average Watts:
+                   <input type="number" id="cardio-watts-input" class="timed-user-input"
+                       inputmode="numeric" pattern="[0-9]*"
+                       step="1" min="0"
+                       value="${ex.userInputs[setIdx] || ''}" placeholder="0" onfocus="this.select()">
+               </label>
+           </div>`
+        : '';
+
     // Previous accomplishment
     const prev = getPreviousAccomplishment(ex.name, setIdx);
     const prevHTML = prev
@@ -2283,9 +2509,13 @@ function renderExercise() {
            </div>`
         : `<div class="prev-accomplishment prev-none">No previous data for this set</div>`;
 
-    // For countup exercises, Next Set also stops the timer — label changes
+    // For countup exercises, Next Set also stops the timer — label changes.
+    // For cardio/watts waiting on the average-watts prompt, label reflects
+    // that this tap logs the value and advances (the "stop the clock" tap
+    // already happened).
     const isCountup = timerMode === 'countup' || timerMode === 'paused-countup';
-    const nextLabel = isCountup ? 'Done — Next Set →' : 'Next Set →';
+    let nextLabel = isCountup ? 'Done — Next Set →' : 'Next Set →';
+    if (isCardioWatts && timerMode === 'waiting-input') nextLabel = 'Log Watts & Continue →';
 
     // Laterality icon shown next to Added Weight — barbell for bilateral
     // (both sides together), dumbbell for unilateral (one side at a time;
@@ -2295,11 +2525,19 @@ function renderExercise() {
         ? 'Unilateral — one side at a time'
         : 'Bilateral — both sides together';
 
+    // Body weight / added weight row is meaningless for Cardio/Watt exercises
+    // (no bodyWeightPct or added weight is used in their Work/Power math).
+    const weightRowHTML = isCardioWatts
+        ? ''
+        : `<p class="weight-inline">Body weight load: ${formatBodyWeightForce(ex)} &nbsp;—&nbsp; <span title="${lateralityTitle}">${lateralityIconHtml}</span> Added weight (${userSettings.weightUnit}): <input type="number" step="0.5" id="weight-input" value="${ex.weights[setIdx] || ''}" class="weight-inline-input"></p>`;
+
     list.innerHTML = `
         <h3>${escHtml(ex.name)}</h3>
         <p class="goal-set-line">Set <span class="set-counter-num">${currentSet}/${ex.sets}</span> — ${goalText}</p>
-        <p class="weight-inline">Body weight load: ${formatBodyWeightForce(ex)} &nbsp;—&nbsp; <span title="${lateralityTitle}">${lateralityIconHtml}</span> Added weight (${userSettings.weightUnit}): <input type="number" step="0.5" id="weight-input" value="${ex.weights[setIdx] || ''}" class="weight-inline-input"></p>
+        ${weightRowHTML}
+        ${cardioActiveDistanceBanner}
         ${timedInputHTML}
+        ${cardioWattsHTML}
         <div class="set-btn-row">
             <button class="back-set-btn" onclick="prevSet()">${isFirst ? '✕' : '‹'}</button>
             ${isLastSet
@@ -2314,6 +2552,9 @@ function renderExercise() {
     if (needsTimedInput) {
         setTimeout(() => document.getElementById('timed-user-input')?.focus(), 120);
     }
+    if (needsCardioWattsInput) {
+        setTimeout(() => document.getElementById('cardio-watts-input')?.focus(), 120);
+    }
 }
 
 function completeWorkout(silent = false) {
@@ -2325,14 +2566,28 @@ function completeWorkout(silent = false) {
     const lastEx = currentWorkout[currentExerciseIndex];
     if (lastEx) {
         const setIdx = currentSet - 1;
-        lastEx.weights[setIdx] = parseFloat(document.getElementById('weight-input')?.value) || 0;
+        const isCardioWatts = lastEx.type === 'cardio' && lastEx.inputMode === 'watts';
+
+        if (!isCardioWatts) {
+            lastEx.weights[setIdx] = parseFloat(document.getElementById('weight-input')?.value) || 0;
+        }
 
         // If countup was running, stop it and record time
-        if (timerMode === 'countup' || timerMode === 'paused-countup') {
+        if (!isCardioWatts && (timerMode === 'countup' || timerMode === 'paused-countup')) {
             const setTimeSec = setStartTime ? Math.round((Date.now() - setStartTime) / 1000) : timerElapsed;
             lastEx.setTimes[setIdx] = setTimeSec;
         }
-        if (lastEx.type !== 'isometric' && (lastEx.unit === 'seconds' || lastEx.unit === 'minutes') && lastEx.timedInput !== 'none') {
+
+        if (isCardioWatts) {
+            // If completed early while still counting up (user never tapped
+            // Next Set to stop the clock and reveal the watts prompt),
+            // capture the elapsed time now so Work/Power aren't lost.
+            if (timerMode === 'countup' || timerMode === 'paused-countup') {
+                const setTimeSec = setStartTime ? Math.round((Date.now() - setStartTime) / 1000) : timerElapsed;
+                lastEx.setTimes[setIdx] = setTimeSec;
+            }
+            lastEx.userInputs[setIdx] = parseFloat(document.getElementById('cardio-watts-input')?.value) || 0;
+        } else if (lastEx.type !== 'isometric' && (lastEx.unit === 'seconds' || lastEx.unit === 'minutes') && lastEx.timedInput !== 'none') {
             lastEx.userInputs[setIdx] = parseFloat(document.getElementById('timed-user-input')?.value) || 0;
         }
 
@@ -2341,6 +2596,7 @@ function completeWorkout(silent = false) {
             const addedW     = lastEx.weights[setIdx];
             const setTimeSec = lastEx.setTimes[setIdx];
             let repsOrDist   = lastEx.type === 'isometric' ? 0
+                : isCardioWatts ? lastEx.userInputs[setIdx]
                 : lastEx.unit === 'reps'   ? lastEx.target
                 : lastEx.unit === 'meters' ? (lastEx.distanceM || lastEx.target)
                 : lastEx.userInputs[setIdx];
@@ -2465,7 +2721,7 @@ function triggerCSVDownload(csvContent, filename) {
 // ── CSV BACKUP & RESTORE ──────────────────────────────────────────
 // Exports/imports ALL workout programs (not just the active one), so a
 // backup/restore round-trip never silently drops a program.
-const CSV_HEADER = 'program_index,program_name,workout_index,workout_name,exercise_name,type,phase,sets,target,unit,bodyWeightPct,heightPct,distanceM,setRestSec,exerciseRestSec,timedInput,autoSequence,laterality';
+const CSV_HEADER = 'program_index,program_name,workout_index,workout_name,exercise_name,type,phase,sets,target,unit,bodyWeightPct,heightPct,distanceM,setRestSec,exerciseRestSec,timedInput,autoSequence,laterality,inputMode';
 
 function csvEscape(val) {
     const s = String(val);
@@ -2488,12 +2744,12 @@ function exportPlanCSV() {
     const rows = [CSV_HEADER];
     workoutPrograms.forEach((program, pIdx) => {
         if (program.workouts.length === 0) {
-            rows.push([csvEscape(pIdx), csvEscape(program.name), '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
+            rows.push([csvEscape(pIdx), csvEscape(program.name), '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
             return;
         }
         program.workouts.forEach((wo, wIdx) => {
             if (wo.exercises.length === 0) {
-                rows.push([csvEscape(pIdx), csvEscape(program.name), csvEscape(wIdx), csvEscape(wo.name), '', '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
+                rows.push([csvEscape(pIdx), csvEscape(program.name), csvEscape(wIdx), csvEscape(wo.name), '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
             } else {
                 wo.exercises.forEach(ex => {
                     rows.push([
@@ -2514,7 +2770,8 @@ function exportPlanCSV() {
                         csvEscape(ex.exerciseRestSec ?? 90),
                         csvEscape(ex.timedInput      || 'reps'),
                         csvEscape(ex.autoSequence    ? 'true' : 'false'),
-                        csvEscape(ex.laterality      || 'bilateral')
+                        csvEscape(ex.laterality      || 'bilateral'),
+                        csvEscape(ex.inputMode        || '')
                     ].join(','));
                 });
             }
@@ -2577,6 +2834,9 @@ function importPlanCSV(event) {
                 // Older CSV exports (pre-laterality) simply won't have this
                 // column — cols[ci] will be undefined and default applies.
                 const laterality      = (cols[ci++]?.trim() || 'bilateral') || 'bilateral';
+                // inputMode only matters for type === 'cardio'; older exports
+                // won't have this column at all.
+                const inputMode       = (cols[ci++]?.trim() || 'watts') || 'watts';
 
                 if (!programsMap[pIdx]) {
                     programsMap[pIdx] = { name: pName, workoutsMap: {}, workoutOrder: [] };
@@ -2588,13 +2848,15 @@ function importPlanCSV(event) {
                     program.workoutOrder.push(wIdx);
                 }
                 if (exName) {
-                    program.workoutsMap[wIdx].exercises.push({
+                    const exObj = {
                         name: exName, type, phase,
                         bodyWeightPct, heightPct, distanceM,
                         setRestSec, exerciseRestSec,
                         sets, target, unit, timedInput,
                         autoSequence, laterality, weights: []
-                    });
+                    };
+                    if (type === 'cardio') exObj.inputMode = inputMode;
+                    program.workoutsMap[wIdx].exercises.push(exObj);
                 }
             });
 
@@ -2810,7 +3072,7 @@ function updateSoundUI() {
 }
 
 // ── PROGRESS CSV BACKUP & RESTORE ────────────────────────────────
-const PROGRESS_CSV_HEADER = 'date,workout_name,duration_seconds,weight_unit,height_unit,workout_total_work,workout_total_power,exercise_name,type,phase,sets,target,unit,bodyWeightPct,heightPct,weights,timedInput,user_inputs,set_times,total_work,total_power,total_tension,laterality';
+const PROGRESS_CSV_HEADER = 'date,workout_name,duration_seconds,weight_unit,height_unit,workout_total_work,workout_total_power,exercise_name,type,phase,sets,target,unit,bodyWeightPct,heightPct,weights,timedInput,user_inputs,set_times,total_work,total_power,total_tension,laterality,inputMode';
 
 function exportProgressCSV() {
     if (progressLogs.length === 0) {
@@ -2827,7 +3089,7 @@ function exportProgressCSV() {
         const wkWork  = csvEscape(log.workoutTotalWork  ?? '');
         const wkPower = csvEscape(log.workoutTotalPower ?? '');
         if (!log.exercises || log.exercises.length === 0) {
-            rows.push([date, woName, dur, wu, hu, wkWork, wkPower, '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
+            rows.push([date, woName, dur, wu, hu, wkWork, wkPower, '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
         } else {
             log.exercises.forEach(ex => {
                 const weights    = Array.isArray(ex.weights)    ? ex.weights.join('|')    : '';
@@ -2850,7 +3112,8 @@ function exportProgressCSV() {
                     csvEscape(ex.totalWork     ?? ''),
                     csvEscape(ex.totalPower    ?? ''),
                     csvEscape(ex.totalTension  ?? ''),
-                    csvEscape(ex.laterality    || 'bilateral')
+                    csvEscape(ex.laterality    || 'bilateral'),
+                    csvEscape(ex.inputMode     || '')
                 ].join(','));
             });
         }
@@ -2880,6 +3143,7 @@ function importProgressCSV(event) {
             const hasUserInputs  = header.includes('user_inputs');
             const hasSetTimes    = header.includes('set_times');
             const hasLaterality  = header.includes('laterality');
+            const hasInputMode   = header.includes('inputmode');
             const logMap = {}, logOrder = [];
             lines.slice(1).forEach(line => {
                 const cols = parseCSVLine(line);
@@ -2918,6 +3182,7 @@ function importProgressCSV(event) {
                     const tt = cols[ci++]?.trim(); totalTension = tt !== '' ? parseFloat(tt) : null;
                 }
                 const laterality = hasLaterality ? (cols[ci++]?.trim() || 'bilateral') : 'bilateral';
+                const inputMode  = hasInputMode ? (cols[ci++]?.trim() || 'watts') : 'watts';
                 const key = date + '||' + woName;
                 if (!logMap[key]) {
                     logMap[key] = { date, workoutName: woName, duration, weightUnit, heightUnit,
@@ -2925,13 +3190,15 @@ function importProgressCSV(event) {
                     logOrder.push(key);
                 }
                 if (exName) {
-                    logMap[key].exercises.push({
+                    const exObj = {
                         name: exName, type, phase,
                         bodyWeightPct, heightPct, laterality,
                         sets, target, unit, timedInput, weights, userInputs, setTimes,
                         totalWork, totalPower, totalTension,
                         isIsometric: type === 'isometric'
-                    });
+                    };
+                    if (type === 'cardio') exObj.inputMode = inputMode;
+                    logMap[key].exercises.push(exObj);
                 }
             });
             const imported = logOrder.map(k => logMap[k]);
