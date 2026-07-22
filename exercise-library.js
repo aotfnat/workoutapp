@@ -1,5 +1,5 @@
 // exercise-library.js
-// Version 10.4
+// Version 9.10
 // SOC: Added Cardio/Watt (type: 'cardio', inputMode: 'watts') library
 // entries — Exercise Bike (Watts) and Rowing Erg (Watts) — for equipment
 // with a console watts readout, as an alternative to the existing

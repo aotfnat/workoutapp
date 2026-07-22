@@ -1,6 +1,8 @@
 /* ── styles.css ── iPhone-optimised PWA ──────────────────────────── */
-/* Version 10.4; SOC: Added .ex-tag-cardio style for the new Cardio/Watt
-   exercise type tag shown in the Plan tab exercise row. */
+/* Version 10.3; SOC: Fixed the 3-way exercise-type toggle (Isotonic /
+   Isometric / Cardio/Watt) overflowing off-screen in portrait — added
+   min-width:0 + overflow-wrap to .ex-toggle-opt and flex-wrap to
+   .ex-toggle-row so long/unbreakable labels no longer force overflow. */
 
 /* ── Reset & base ──────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
@@ -1591,11 +1593,13 @@ body:has(#workout-section.active) #floating-menu-btn {
 /* Isotonic / isometric toggle */
 .ex-toggle-row {
     display: flex;
+    flex-wrap: wrap;
     gap: 10px;
 }
 
 .ex-toggle-opt {
     flex: 1;
+    min-width: 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1608,6 +1612,8 @@ body:has(#workout-section.active) #floating-menu-btn {
     color: #fff;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
+    overflow-wrap: break-word;
+    text-align: center;
 }
 .ex-toggle-opt input[type="radio"] {
     accent-color: #30d158;

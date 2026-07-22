@@ -1,17 +1,17 @@
 // app.js
-//Version 10.4
-//SOC: Removed the Watt-to-Weight calculator. Added a third exercise type,
-//     Cardio/Watt (ex.type === 'cardio'), with an inputMode of 'watts' or
-//     'weight'. Weight-mode behaves exactly like isotonic (existing
-//     bodyWeightPct/distance model). Watts-mode bypasses that model
-//     entirely: the user logs average watts directly from the equipment
-//     console, for either a timed interval (seconds/minutes, countdown)
-//     or a distance target (meters, count-up — Next Set stops the clock
-//     and prompts for watts, mirroring the two-tap flow of timed-isotonic
-//     sets). Work = watts × setTimeSec, Power = watts. Added the matching
-//     inputMode column to both Plan and Progress CSV export/import, a new
-//     ex-tag-cardio Plan-tab tag, and cardio-aware Previous Accomplishment
-//     text (labelled "W" instead of reps/distance).
+//Version 10.5
+//SOC: Fixed Cardio/Watt Work/Power showing as zero — calcSetMetrics() and
+//     calcExerciseTotals() were missing their cardio/watts branches (Work =
+//     watts × setTimeSec, Power = watts), so every set fell through to the
+//     force/distance model with force = 0. Removed the lightning-bolt icon
+//     from the Cardio/Watt exercise-type toggle label for consistency with
+//     Isotonic/Isometric. Fixed the 3-way exercise-type toggle overflowing
+//     off-screen in portrait (the unbroken "Cardio/Watt" token couldn't
+//     wrap inside its flex item, which has an implicit min-width:auto) —
+//     added a natural break point in the label, plus min-width:0/wrap
+//     safety nets in styles.css. Removed the redundant "⚡ watts-based" text
+//     from the Plan tab exercise row for Cardio/Watt exercises — the blue
+//     ex-tag-cardio "⚡ WATT" tag already conveys that.
 
 // ── Schema version guard ─────────────────────────────────────────
 // Bump SCHEMA_VERSION whenever the data model changes in a breaking way.
@@ -161,7 +161,31 @@ function calcDistMeters(ex, distInput) {
 // Returns { workJ: number|null, powerW: number|null, tensionLoad: number|null }
 // workJ / powerW are in J (metric) or ft-lbf (imperial).
 // tensionLoad is in N·s (metric) or lbf·s (imperial).
+// Main per-set calculation.
+// Returns { workJ: number|null, powerW: number|null, tensionLoad: number|null }
+// workJ / powerW are in J (metric) or ft-lbf (imperial).
+// tensionLoad is in N·s (metric) or lbf·s (imperial).
+//
+// Cardio/Watt (inputMode: 'watts'): bypasses the force/distance model
+// entirely — the user logs average watts directly from the equipment
+// console, so Work = watts × setTimeSec and Power = watts (no bodyWeightPct,
+// heightPct, or addedWeight involved). `repsOrDist` carries the logged
+// watts value for this branch (reusing the same parameter the rest of the
+// isotonic/timed-isotonic call sites already use for "the value the user
+// entered this set").
 function calcSetMetrics(ex, addedWeight, repsOrDist, setTimeSec) {
+    if (ex.type === 'cardio' && ex.inputMode === 'watts') {
+        const watts = repsOrDist || 0;
+        const dur   = setTimeSec || 0;
+        if (isMetric()) {
+            return { workJ: watts * dur, powerW: watts, tensionLoad: null };
+        }
+        // Imperial: convert watts → ft-lbf/s so it's directly comparable
+        // to the ft-lbf work/power figures used everywhere else.
+        const powerFtLbfS = watts * 0.737562;
+        return { workJ: powerFtLbfS * dur, powerW: powerFtLbfS, tensionLoad: null };
+    }
+
     const force = calcForce(ex, addedWeight);
 
     if (ex.type === 'isometric') {
@@ -196,7 +220,8 @@ function calcExerciseTotals(ex) {
         const setTimeSec = (ex.setTimes   || [])[i] || 0;
         let repsOrDist  = 0;
         if (!isIso) {
-            if (ex.unit === 'reps')   repsOrDist = ex.target || 0;
+            if (ex.type === 'cardio') repsOrDist = (ex.userInputs || [])[i] || 0;
+            else if (ex.unit === 'reps')   repsOrDist = ex.target || 0;
             else if (ex.unit === 'meters') repsOrDist = ex.distanceM || ex.target || 0;
             else repsOrDist = (ex.userInputs || [])[i] || 0;
         }
@@ -654,8 +679,10 @@ function renderExerciseRow(ex, wIdx, eIdx) {
             : `<span class="ex-tag ex-tag-bi" title="Bilateral — both sides together">${BARBELL_ICON_SVG} BI</span>`);
 
     const bwForce = getBodyWeightForce(ex);
+    // The ex-tag-cardio "⚡ WATT" tag already communicates that this exercise
+    // is watts-based — no need for a redundant "watts-based" text segment too.
     const bwText  = isCardioWatts
-        ? '⚡ watts-based'
+        ? ''
         : (bwForce !== null ? `${bwForce.toFixed(1)} ${userSettings.weightUnit} BW` : '⚠ set weight');
 
     let targetText = '';
@@ -698,7 +725,7 @@ function renderExerciseRow(ex, wIdx, eIdx) {
                 <button class="icon-btn danger" onclick="removeExercise(${wIdx}, ${eIdx})" title="Remove">✕</button>
             </div>
             <div class="plan-ex-detail" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-                <span>${targetText} · ${bwText}</span>
+                <span>${targetText}${bwText ? ` · ${bwText}` : ''}</span>
                 ${typeTag}
                 ${lateralityTag}
             </div>
@@ -970,7 +997,7 @@ function openExerciseForm(title, ex) {
                     </label>
                     <label class="ex-toggle-opt" style="font-size:13px;padding:12px 4px;">
                         <input type="radio" name="ef-type" value="cardio" ${cardioChecked}
-                            onchange="exFormTypeChanged()"> ⚡ Cardio/Watt
+                            onchange="exFormTypeChanged()"> Cardio / Watt
                     </label>
                 </div>
             </div>
