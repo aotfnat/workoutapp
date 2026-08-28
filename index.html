@@ -1,7 +1,10 @@
 <!-- index.html Workout App -->
-<!-- Version 10.4, SOC: Removed the Watt-to-Weight calculator section from
-     the Workout timer drawer (superseded by direct watts logging via the
-     new Cardio/Watt exercise type — see app.js). -->
+<!-- Version 10.5, SOC: Added a second modal (#log-edit-modal /
+     #log-edit-modal-overlay) for editing a logged workout's exercises
+     from the Progress tab — see app.js editProgressLog(). Reuses the
+     .ex-modal-title / .ex-modal-footer / .ex-modal-cancel / .ex-modal-next
+     classes for consistent chrome with the existing exercise-form modal;
+     only the overlay/container/body/list styling is new (see styles.css). -->
 
 <!DOCTYPE html>
 <html lang="en">
@@ -214,6 +217,17 @@
         <div id="ex-modal-body"></div>
         <div class="ex-modal-footer">
             <button class="ex-modal-cancel" onclick="exModalCancel()">Cancel</button>
+        </div>
+    </div>
+
+    <!-- Progress log edit modal -->
+    <div id="log-edit-modal-overlay" onclick="logEditModalCancel()"></div>
+    <div id="log-edit-modal">
+        <div id="log-edit-modal-title" class="ex-modal-title"></div>
+        <div id="log-edit-modal-body" class="log-edit-modal-body"></div>
+        <div class="ex-modal-footer">
+            <button class="ex-modal-cancel" onclick="logEditModalCancel()">Cancel</button>
+            <button class="ex-modal-next" onclick="logEditModalSave()">Save ✓</button>
         </div>
     </div>
 

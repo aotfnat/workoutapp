@@ -1,17 +1,27 @@
 // app.js
 //Version 10.5
-//SOC: Fixed Cardio/Watt Work/Power showing as zero — calcSetMetrics() and
-//     calcExerciseTotals() were missing their cardio/watts branches (Work =
-//     watts × setTimeSec, Power = watts), so every set fell through to the
-//     force/distance model with force = 0. Removed the lightning-bolt icon
-//     from the Cardio/Watt exercise-type toggle label for consistency with
-//     Isotonic/Isometric. Fixed the 3-way exercise-type toggle overflowing
-//     off-screen in portrait (the unbroken "Cardio/Watt" token couldn't
-//     wrap inside its flex item, which has an implicit min-width:auto) —
-//     added a natural break point in the label, plus min-width:0/wrap
-//     safety nets in styles.css. Removed the redundant "⚡ watts-based" text
-//     from the Plan tab exercise row for Cardio/Watt exercises — the blue
-//     ex-tag-cardio "⚡ WATT" tag already conveys that.
+//SOC: Added three workflow features. (1) Progress tab: each logged
+//     workout now has an Edit (✏️) button that opens a modal to adjust
+//     exercise name, sets count, and each set's active time / logged
+//     reps-distance-watts / added weight, then recomputes that log's
+//     Work/Power totals on Save (editProgressLog, logEditModalSave, and
+//     related log-edit-* helpers). (2) Workout tab: an "Edit This
+//     Exercise" button below the Previous Accomplishment block opens the
+//     same exercise-form modal used by the Plan tab (Phase excluded —
+//     can't be changed mid-workout) scoped to ONLY the currently-running
+//     exercise; the active/rest timer is paused while the form is open,
+//     resumes exactly where it was on Cancel, or resets to the start of
+//     the (now-edited) exercise on Save (editCurrentExercise,
+//     applyWorkoutExerciseEdit, pauseTimerForEdit,
+//     resumeTimerAfterEditCancel). (3) Plan tab exercise form: the
+//     Distance (m) field under Body Weight % is now hidden for all
+//     isotonic/Cardio-weight-mode meters-based exercises (e.g. Running) —
+//     it duplicated the Target field, which already doubles as the
+//     distance-per-set value for those types. Cardio/Watt watts-mode is
+//     unaffected (Distance still shows there since Target is hidden for
+//     it instead). Old exercises that already had a distinct distanceM
+//     value now surface it via Target the first time they're reopened for
+//     editing, so no data is silently dropped.
 
 // ── Schema version guard ─────────────────────────────────────────
 // Bump SCHEMA_VERSION whenever the data model changes in a breaking way.
@@ -161,31 +171,7 @@ function calcDistMeters(ex, distInput) {
 // Returns { workJ: number|null, powerW: number|null, tensionLoad: number|null }
 // workJ / powerW are in J (metric) or ft-lbf (imperial).
 // tensionLoad is in N·s (metric) or lbf·s (imperial).
-// Main per-set calculation.
-// Returns { workJ: number|null, powerW: number|null, tensionLoad: number|null }
-// workJ / powerW are in J (metric) or ft-lbf (imperial).
-// tensionLoad is in N·s (metric) or lbf·s (imperial).
-//
-// Cardio/Watt (inputMode: 'watts'): bypasses the force/distance model
-// entirely — the user logs average watts directly from the equipment
-// console, so Work = watts × setTimeSec and Power = watts (no bodyWeightPct,
-// heightPct, or addedWeight involved). `repsOrDist` carries the logged
-// watts value for this branch (reusing the same parameter the rest of the
-// isotonic/timed-isotonic call sites already use for "the value the user
-// entered this set").
 function calcSetMetrics(ex, addedWeight, repsOrDist, setTimeSec) {
-    if (ex.type === 'cardio' && ex.inputMode === 'watts') {
-        const watts = repsOrDist || 0;
-        const dur   = setTimeSec || 0;
-        if (isMetric()) {
-            return { workJ: watts * dur, powerW: watts, tensionLoad: null };
-        }
-        // Imperial: convert watts → ft-lbf/s so it's directly comparable
-        // to the ft-lbf work/power figures used everywhere else.
-        const powerFtLbfS = watts * 0.737562;
-        return { workJ: powerFtLbfS * dur, powerW: powerFtLbfS, tensionLoad: null };
-    }
-
     const force = calcForce(ex, addedWeight);
 
     if (ex.type === 'isometric') {
@@ -220,8 +206,7 @@ function calcExerciseTotals(ex) {
         const setTimeSec = (ex.setTimes   || [])[i] || 0;
         let repsOrDist  = 0;
         if (!isIso) {
-            if (ex.type === 'cardio') repsOrDist = (ex.userInputs || [])[i] || 0;
-            else if (ex.unit === 'reps')   repsOrDist = ex.target || 0;
+            if (ex.unit === 'reps')   repsOrDist = ex.target || 0;
             else if (ex.unit === 'meters') repsOrDist = ex.distanceM || ex.target || 0;
             else repsOrDist = (ex.userInputs || [])[i] || 0;
         }
@@ -350,6 +335,12 @@ let currentRestDuration = 0;   // full rest duration for the current rest phase 
 let currentActiveDuration = 0; // full active countdown duration for the current active phase (for reset)
 
 let soundEnabled = JSON.parse(localStorage.getItem('soundEnabled') ?? 'true');
+
+// Snapshot of the timer's state captured when "Edit This Exercise" is
+// tapped mid-workout (see editCurrentExercise / exModalCancel /
+// applyWorkoutExerciseEdit) — used to resume exactly where things were if
+// the edit is canceled instead of saved.
+let _editExercisePausedState = null;
 
 
 // Plan tab — which workout cards are expanded (by wIdx)
@@ -679,10 +670,8 @@ function renderExerciseRow(ex, wIdx, eIdx) {
             : `<span class="ex-tag ex-tag-bi" title="Bilateral — both sides together">${BARBELL_ICON_SVG} BI</span>`);
 
     const bwForce = getBodyWeightForce(ex);
-    // The ex-tag-cardio "⚡ WATT" tag already communicates that this exercise
-    // is watts-based — no need for a redundant "watts-based" text segment too.
     const bwText  = isCardioWatts
-        ? ''
+        ? '⚡ watts-based'
         : (bwForce !== null ? `${bwForce.toFixed(1)} ${userSettings.weightUnit} BW` : '⚠ set weight');
 
     let targetText = '';
@@ -725,7 +714,7 @@ function renderExerciseRow(ex, wIdx, eIdx) {
                 <button class="icon-btn danger" onclick="removeExercise(${wIdx}, ${eIdx})" title="Remove">✕</button>
             </div>
             <div class="plan-ex-detail" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-                <span>${targetText}${bwText ? ` · ${bwText}` : ''}</span>
+                <span>${targetText} · ${bwText}</span>
                 ${typeTag}
                 ${lateralityTag}
             </div>
@@ -858,7 +847,12 @@ function exModalClose() {
     document.getElementById('ex-modal').classList.remove('open');
     _exModal = {};
 }
-function exModalCancel() { exModalClose(); }
+function exModalCancel() {
+    if (_exModal.mode === 'workout') {
+        resumeTimerAfterEditCancel();
+    }
+    exModalClose();
+}
 
 function exModalSetTitle(t) {
     document.getElementById('ex-modal-title').textContent = t;
@@ -896,6 +890,11 @@ function openExerciseForm(title, ex) {
     const wattsModeChecked  = inputModeVal === 'watts'  ? 'checked' : '';
     const weightModeChecked = inputModeVal === 'weight' ? 'checked' : '';
     const isCardioWatts     = ex.type === 'cardio' && inputModeVal === 'watts';
+    // True when this form was opened via "Edit This Exercise" mid-workout
+    // (editCurrentExercise) rather than from the Plan tab — Phase and
+    // Auto-sequence aren't editable in that context (see exFormSave /
+    // exFormRefreshAutoSeq).
+    const isWorkoutEditMode = _exModal.mode === 'workout';
 
     const phases = [
         { val: 'warmup',   label: '🌡 Warmup' },
@@ -939,22 +938,31 @@ function openExerciseForm(title, ex) {
     // "No logging" is only offered for Warmup/Cooldown timed-isotonic exercises —
     // the Work phase always needs reps/distance to compute Work/Power.
     const noneOptVis = currentPhase !== 'work' ? '' : 'display:none';
-    const showAutoSeq = ex.type === 'isometric'
-        || (isTimedSet && currentPhase !== 'work' && timedInputVal === 'none');
+    const showAutoSeq = !isWorkoutEditMode && (ex.type === 'isometric'
+        || (isTimedSet && currentPhase !== 'work' && timedInputVal === 'none'));
 
     const isDistanceBased = ex.unit === 'meters';
     // Height % is irrelevant for Cardio/Watt watts-mode (no distance/rep
     // model at all) and for distance-based exercises generally.
     const heightVis = (ex.type !== 'isometric' && !isCardioWatts && !isDistanceBased) ? '' : 'display:none';
-    // Distance field shows for any distance-based exercise, including
-    // Cardio/Watt watts-mode where it doubles as the on-screen target the
-    // user watches for on the equipment (not used in the Work/Power math).
-    const distanceVis = isDistanceBased ? '' : 'display:none';
+    // Distance field is only needed for Cardio/Watt watts-mode, where it
+    // doubles as the on-screen target the user watches for on the
+    // equipment (Target is hidden in that case — see targetSectionVis).
+    // Everywhere else (plain isotonic or Cardio/Watt weight-mode, e.g. a
+    // Running entry), Target already IS the distance-per-set value, so a
+    // separate Distance field would just duplicate it — keep it hidden.
+    const distanceVis = (isDistanceBased && isCardioWatts) ? '' : 'display:none';
     // Target (numeric reps/duration) is redundant with Distance when in
     // Cardio/Watt watts-mode + meters — hide it entirely in that case.
     const targetSectionVis = (isCardioWatts && isDistanceBased) ? 'display:none' : '';
     const bwSectionVis = isCardioWatts ? 'display:none' : '';
     const lateralitySectionVis = isCardioWatts ? 'display:none' : '';
+    // Migration: exercises saved before Distance was hidden may still
+    // carry a distanceM distinct from target — surface it via Target so
+    // reopening an old entry for editing doesn't silently drop it.
+    const targetInitialValue = (isDistanceBased && !isCardioWatts && ex.distanceM !== null && ex.distanceM !== undefined)
+        ? ex.distanceM
+        : (ex.target ?? 10);
 
     const bwForce = getBodyWeightForce(ex);
     const bwPreview = bwForce !== null
@@ -997,7 +1005,7 @@ function openExerciseForm(title, ex) {
                     </label>
                     <label class="ex-toggle-opt" style="font-size:13px;padding:12px 4px;">
                         <input type="radio" name="ef-type" value="cardio" ${cardioChecked}
-                            onchange="exFormTypeChanged()"> Cardio / Watt
+                            onchange="exFormTypeChanged()"> ⚡ Cardio/Watt
                     </label>
                 </div>
             </div>
@@ -1033,7 +1041,8 @@ function openExerciseForm(title, ex) {
             </div>
             <div class="ex-form-section">
                 <label class="ex-form-label" for="ef-phase">Phase</label>
-                <select id="ef-phase" class="ex-form-select" onchange="exFormPhaseChanged()">${phaseOpts}</select>
+                <select id="ef-phase" class="ex-form-select" onchange="exFormPhaseChanged()" ${isWorkoutEditMode ? 'disabled' : ''}>${phaseOpts}</select>
+                ${isWorkoutEditMode ? '<p class="ex-form-hint" style="margin:6px 0 0;">Phase can\u2019t be changed mid-workout.</p>' : ''}
             </div>
             <div id="ef-bwpct-section" class="ex-form-section" style="${bwSectionVis}">
                 <label class="ex-form-label" for="ef-bwpct">
@@ -1086,7 +1095,7 @@ function openExerciseForm(title, ex) {
                 <div class="ex-form-row">
                     <input id="ef-target" class="ex-num-input" type="number"
                         inputmode="numeric" pattern="[0-9]*"
-                        min="1" step="1" value="${ex.target ?? 10}" onfocus="this.select()">
+                        min="1" step="1" value="${targetInitialValue}" onfocus="this.select()">
                     <span id="ef-target-unit" class="ex-form-unit"></span>
                 </div>
             </div>
@@ -1155,7 +1164,7 @@ function openExerciseForm(title, ex) {
         </div>
     `);
 
-    document.querySelector('.ex-modal-footer').innerHTML = `
+    document.querySelector('#ex-modal .ex-modal-footer').innerHTML = `
         <button class="ex-modal-cancel" onclick="exModalCancel()">Cancel</button>
         <button class="ex-modal-next"   onclick="exFormSave()">Save ✓</button>
     `;
@@ -1432,7 +1441,9 @@ function exFormUnitChanged() {
         if (targetSec) targetSec.style.display = isDistance ? 'none' : '';
     } else {
         if (hSec) hSec.style.display = (!isDistance) ? '' : 'none';
-        if (dSec) dSec.style.display = isDistance ? '' : 'none';
+        // Distance is Cardio/Watt-watts-only (see openExerciseForm) —
+        // never shown here; Target carries the distance value instead.
+        if (dSec) dSec.style.display = 'none';
         if (tSec) tSec.style.display = isTimed ? '' : 'none';
         if (targetSec) targetSec.style.display = '';
     }
@@ -1474,6 +1485,9 @@ function exFormTimedInputChanged() {
 function exFormRefreshAutoSeq() {
     const autoSeqSec = document.getElementById('ef-autoseq-section');
     if (!autoSeqSec) return;
+    // Auto-sequence isn't offered when editing the single in-progress
+    // exercise mid-workout (see editCurrentExercise) — keep it hidden.
+    if (_exModal.mode === 'workout') { autoSeqSec.style.display = 'none'; return; }
     const typeVal  = document.querySelector('input[name="ef-type"]:checked')?.value || 'isotonic';
     const inputModeVal = document.querySelector('input[name="ef-inputmode"]:checked')?.value || 'watts';
     const phaseVal = document.getElementById('ef-phase')?.value || 'work';
@@ -1563,6 +1577,14 @@ function exFormSave() {
         weights: []
     };
     if (typeVal === 'cardio') exObj.inputMode = inputModeVal;
+
+    // Editing the single currently-running exercise mid-workout (see
+    // editCurrentExercise) applies straight to currentWorkout instead of
+    // the saved plan, and resets the exercise back to its first set.
+    if (_exModal.mode === 'workout') {
+        applyWorkoutExerciseEdit(exObj);
+        return;
+    }
 
     const { wIdx, editIdx } = _exModal;
     if (editIdx !== null && editIdx !== undefined) {
@@ -2086,6 +2108,48 @@ function pauseResumeTimer() {
     updateHudTimerDisplay();
 }
 
+// ── Edit-current-exercise pause/resume ────────────────────────────
+// Pressing "Edit This Exercise" mid-workout pauses whatever timer is
+// running so the user can safely change parameters, then either resumes
+// it (Cancel) or resets to the start of the (now-edited) exercise (Save).
+function pauseTimerForEdit() {
+    _editExercisePausedState = { timerMode, timerRemaining, timerElapsed };
+    if (timerMode === 'rest') {
+        clearInterval(timerInterval); timerInterval = null; timerMode = 'paused-rest';
+    } else if (timerMode === 'countdown') {
+        clearInterval(timerInterval); timerInterval = null; timerMode = 'paused-countdown';
+    } else if (timerMode === 'countup') {
+        clearInterval(timerInterval); timerInterval = null; timerMode = 'paused-countup';
+    }
+    updateHudTimerDisplay();
+}
+
+function resumeTimerAfterEditCancel() {
+    if (!_editExercisePausedState) return;
+    const prev = _editExercisePausedState;
+    _editExercisePausedState = null;
+    if (prev.timerMode === 'rest') {
+        timerMode = 'rest';
+        runRestTimer(prev.timerRemaining);
+    } else if (prev.timerMode === 'countdown') {
+        timerMode = 'countdown';
+        playWhistle();
+        runCountdownTimer(prev.timerRemaining);
+    } else if (prev.timerMode === 'countup') {
+        timerElapsed = prev.timerElapsed;
+        timerMode = 'countup';
+        playWhistle();
+        resumeCountupTimer();
+    } else {
+        // Was already idle / paused / waiting-input before Edit was
+        // pressed — restore that same state rather than starting anything.
+        timerMode      = prev.timerMode;
+        timerRemaining = prev.timerRemaining;
+        timerElapsed   = prev.timerElapsed;
+        updateHudTimerDisplay();
+    }
+}
+
 // Skip rest to 3 seconds remaining
 function skipToEndOfRest() {
     ensureAudioUnlocked();
@@ -2422,6 +2486,41 @@ function prevSet() {
     renderExercise();
 }
 
+// ── Edit current exercise mid-workout ─────────────────────────────
+function editCurrentExercise() {
+    if (currentExerciseIndex >= currentWorkout.length) return;
+    pauseTimerForEdit();
+    const ex = currentWorkout[currentExerciseIndex];
+    _exModal = { mode: 'workout', editIdx: currentExerciseIndex, phase: null };
+    openExerciseForm('Edit Current Exercise', ex);
+}
+
+// Applies the edited exercise straight to the running currentWorkout copy
+// (never the saved plan) and resets back to set 1 of that exercise, as if
+// just arriving at it — matching startExerciseRestThenActive()'s normal
+// flow for a freshly-reached exercise.
+function applyWorkoutExerciseEdit(exObj) {
+    const idx  = currentExerciseIndex;
+    const sets = exObj.sets;
+    exObj.weights    = new Array(sets).fill(0);
+    exObj.setTimes   = new Array(sets).fill(0);
+    exObj.userInputs = new Array(sets).fill(0);
+    currentWorkout[idx] = exObj;
+
+    currentSet = 1;
+    stopExerciseTimer();
+    _editExercisePausedState = null;
+    exModalClose();
+    updateHudPhaseLabel();
+    renderExercise();
+    if (workoutInProgress) {
+        saveInProgressWorkout();
+        startExerciseRestThenActive();
+    } else {
+        showStartButton();
+    }
+}
+
 // ── Exercise card renderer ────────────────────────────────────────
 function renderExercise() {
     const list = document.getElementById('exercise-list');
@@ -2573,6 +2672,7 @@ function renderExercise() {
             }
         </div>
         ${prevHTML}
+        <button class="edit-current-ex-btn" onclick="editCurrentExercise()">✏️ Edit This Exercise</button>
     `;
 
     // Auto-focus timed input if shown
@@ -3306,7 +3406,10 @@ function renderProgressLog() {
             : '';
         logDiv.innerHTML += `
             <div id="progress-log-entry-${idx}">
-                <h4>${new Date(log.date).toLocaleDateString()} – ${escHtml(log.workoutName || log.day || '')} – ${formatTime(log.duration)}</h4>
+                <div class="prog-log-header-row">
+                    <h4>${new Date(log.date).toLocaleDateString()} – ${escHtml(log.workoutName || log.day || '')} – ${formatTime(log.duration)}</h4>
+                    <button class="icon-btn" title="Edit workout" onclick="editProgressLog(${idx})">✏️</button>
+                </div>
                 ${workLine}
                 ${(log.exercises || []).filter(ex => ex.phase === 'work').map(ex => {
                     const wval = ex.isIsometric
@@ -3316,6 +3419,159 @@ function renderProgressLog() {
                 }).join('')}
             </div>`;
     });
+}
+
+// ── Progress log editing ───────────────────────────────────────────
+// Working copy of the log entry currently being edited — kept separate
+// from progressLogs until Save so Cancel is a true no-op.
+let _logEditModal = {};
+
+function editProgressLog(idx) {
+    const log = progressLogs[idx];
+    if (!log) return;
+    _logEditModal = { idx, exercises: JSON.parse(JSON.stringify(log.exercises || [])) };
+    renderLogEditModal();
+    openLogEditModal();
+}
+
+function openLogEditModal() {
+    document.getElementById('log-edit-modal-overlay')?.classList.add('open');
+    document.getElementById('log-edit-modal')?.classList.add('open');
+}
+function closeLogEditModal() {
+    document.getElementById('log-edit-modal-overlay')?.classList.remove('open');
+    document.getElementById('log-edit-modal')?.classList.remove('open');
+    _logEditModal = {};
+}
+function logEditModalCancel() { closeLogEditModal(); }
+
+function renderLogEditModal() {
+    const log = progressLogs[_logEditModal.idx];
+    if (!log) return;
+    const titleEl = document.getElementById('log-edit-modal-title');
+    if (titleEl) titleEl.textContent = `Edit: ${log.workoutName || log.day || ''} (${new Date(log.date).toLocaleDateString()})`;
+    const body = document.getElementById('log-edit-modal-body');
+    if (!body) return;
+    body.innerHTML = _logEditModal.exercises.map((ex, eIdx) => renderLogEditExercise(ex, eIdx)).join('');
+}
+
+// One exercise's editable block: name, sets count, and per-set rows.
+function renderLogEditExercise(ex, eIdx) {
+    const phaseIcon = ({ warmup: '🌡', work: '💪', cooldown: '❄️' })[ex.phase || 'work'] || '';
+    return `
+        <div class="log-edit-ex-block">
+            <div class="log-edit-ex-header">
+                <input class="log-edit-ex-name" type="text" value="${escHtml(ex.name)}"
+                    oninput="logEditExerciseField(${eIdx}, 'name', this.value)">
+                <span class="log-edit-ex-phase" title="${ex.phase || 'work'}">${phaseIcon}</span>
+            </div>
+            <div class="log-edit-sets-count">
+                <label>Sets <input type="number" min="1" step="1" value="${ex.sets}"
+                    oninput="logEditSetsCountChange(${eIdx}, this.value)"></label>
+            </div>
+            ${renderLogEditSetRows(ex, eIdx)}
+        </div>
+    `;
+}
+
+// The per-set rows for one exercise, rendered into a stable-id wrapper so
+// changing the sets count can refresh just this block in place.
+function renderLogEditSetRows(ex, eIdx) {
+    const isIso = ex.type === 'isometric';
+    const isCardioWatts = ex.type === 'cardio' && ex.inputMode === 'watts';
+    const isTimedIso = !isIso && !isCardioWatts && (ex.unit === 'seconds' || ex.unit === 'minutes');
+    const showLogged = isCardioWatts || (isTimedIso && ex.timedInput !== 'none');
+    const loggedLabel = isCardioWatts ? 'Watts' : (ex.timedInput === 'distance' ? 'Distance' : 'Reps');
+    const showWeight = !isCardioWatts;
+
+    let rows = '';
+    for (let i = 0; i < ex.sets; i++) {
+        rows += `
+            <div class="log-edit-set-row">
+                <span class="log-edit-set-num">Set ${i + 1}</span>
+                <label>Time (s)
+                    <input type="number" min="0" step="1" value="${ex.setTimes?.[i] ?? 0}"
+                        oninput="logEditSetField(${eIdx}, ${i}, 'setTimes', this.value)">
+                </label>
+                ${showLogged ? `
+                <label>${loggedLabel}
+                    <input type="number" min="0" step="1" value="${ex.userInputs?.[i] ?? 0}"
+                        oninput="logEditSetField(${eIdx}, ${i}, 'userInputs', this.value)">
+                </label>` : ''}
+                ${showWeight ? `
+                <label>Weight
+                    <input type="number" min="0" step="0.5" value="${ex.weights?.[i] ?? 0}"
+                        oninput="logEditSetField(${eIdx}, ${i}, 'weights', this.value)">
+                </label>` : ''}
+            </div>
+        `;
+    }
+    return `<div class="log-edit-set-list" id="log-edit-set-list-${eIdx}">${rows}</div>`;
+}
+
+function logEditExerciseField(eIdx, field, value) {
+    const ex = _logEditModal.exercises?.[eIdx];
+    if (!ex) return;
+    ex[field] = value;
+}
+
+function logEditSetField(eIdx, setIdx, field, value) {
+    const ex = _logEditModal.exercises?.[eIdx];
+    if (!ex) return;
+    if (!Array.isArray(ex[field])) ex[field] = [];
+    ex[field][setIdx] = parseFloat(value) || 0;
+}
+
+function logEditSetsCountChange(eIdx, value) {
+    const ex = _logEditModal.exercises?.[eIdx];
+    if (!ex) return;
+    const n = Math.max(1, parseInt(value) || 1);
+    ex.sets = n;
+    ['weights', 'setTimes', 'userInputs'].forEach(field => {
+        const arr = Array.isArray(ex[field]) ? ex[field].slice() : [];
+        while (arr.length < n) arr.push(0);
+        arr.length = n;
+        ex[field] = arr;
+    });
+    const listEl = document.getElementById(`log-edit-set-list-${eIdx}`);
+    if (listEl) listEl.outerHTML = renderLogEditSetRows(ex, eIdx);
+}
+
+function logEditModalSave() {
+    const idx = _logEditModal.idx;
+    const log = progressLogs[idx];
+    if (!log) { closeLogEditModal(); return; }
+
+    const updatedExercises = (_logEditModal.exercises || []).map(ex => {
+        ex.name = (ex.name || '').trim() || ex.name;
+        const totals = calcExerciseTotals(ex);
+        return {
+            ...ex,
+            totalWork:    totals.totalWork,
+            totalPower:   totals.totalPower,
+            totalTension: totals.totalTension,
+            isIsometric:  totals.isIsometric
+        };
+    });
+
+    let workoutTotalWork = 0, workoutTotalPower = 0, powerCount = 0;
+    updatedExercises.forEach(ex => {
+        if (ex.phase === 'work' && !ex.isIsometric) {
+            workoutTotalWork += ex.totalWork || 0;
+            if (ex.totalPower !== null && ex.totalPower !== undefined) {
+                workoutTotalPower += ex.totalPower;
+                powerCount++;
+            }
+        }
+    });
+
+    log.exercises         = updatedExercises;
+    log.workoutTotalWork  = workoutTotalWork;
+    log.workoutTotalPower = powerCount > 0 ? workoutTotalPower / powerCount : null;
+
+    localStorage.setItem('progressLogs', JSON.stringify(progressLogs));
+    closeLogEditModal();
+    loadProgress();
 }
 
 // Build list of unique workout names from logs

@@ -1,8 +1,9 @@
 /* ── styles.css ── iPhone-optimised PWA ──────────────────────────── */
-/* Version 10.3; SOC: Fixed the 3-way exercise-type toggle (Isotonic /
-   Isometric / Cardio/Watt) overflowing off-screen in portrait — added
-   min-width:0 + overflow-wrap to .ex-toggle-opt and flex-wrap to
-   .ex-toggle-row so long/unbreakable labels no longer force overflow. */
+/* Version 10.5; SOC: Added chrome for the new Progress-tab log-edit modal
+   (#log-edit-modal / #log-edit-modal-overlay / .log-edit-*), a
+   .prog-log-header-row style for the new per-log Edit button, and an
+   .edit-current-ex-btn style for the new "Edit This Exercise" button on
+   the Workout tab. */
 
 /* ── Reset & base ──────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
@@ -1593,13 +1594,11 @@ body:has(#workout-section.active) #floating-menu-btn {
 /* Isotonic / isometric toggle */
 .ex-toggle-row {
     display: flex;
-    flex-wrap: wrap;
     gap: 10px;
 }
 
 .ex-toggle-opt {
     flex: 1;
-    min-width: 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1612,8 +1611,6 @@ body:has(#workout-section.active) #floating-menu-btn {
     color: #fff;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
-    overflow-wrap: break-word;
-    text-align: center;
 }
 .ex-toggle-opt input[type="radio"] {
     accent-color: #30d158;
@@ -1972,3 +1969,165 @@ body:has(#workout-section.active) #floating-menu-btn {
     flex: 0 0 auto;
     accent-color: #30d158;
 }
+
+/* ── Progress log edit modal — reuses .ex-modal-title / .ex-modal-footer /
+   .ex-modal-cancel / .ex-modal-next for consistent chrome; only the
+   overlay/container/body/list styling below is new. ────────────────── */
+#log-edit-modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 400;
+}
+#log-edit-modal-overlay.open { display: block; }
+
+#log-edit-modal {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%) scale(0.92);
+    width: min(400px, 92vw);
+    max-width: 92vw;
+    box-sizing: border-box;
+    overflow-x: hidden;
+    background: #1c1c1e;
+    border-radius: 20px;
+    padding: 24px 20px 16px;
+    z-index: 401;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s, transform 0.2s;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+#log-edit-modal.open {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate(-50%, -50%) scale(1);
+}
+
+.log-edit-modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    max-height: 60dvh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    padding-right: 2px;
+}
+
+.log-edit-ex-block {
+    background: #2c2c2e;
+    border: 1px solid #3a3a3c;
+    border-radius: 12px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.log-edit-ex-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.log-edit-ex-name {
+    flex: 1;
+    min-width: 0;
+    background: #1c1c1e;
+    color: #fff;
+    border: 1px solid #3a3a3c;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 8px 10px;
+}
+.log-edit-ex-name:focus { outline: none; border-color: #30d158; }
+.log-edit-ex-phase { font-size: 16px; flex-shrink: 0; }
+
+.log-edit-sets-count label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #8e8e93;
+    font-weight: 600;
+}
+.log-edit-sets-count input {
+    width: 60px;
+    background: #1c1c1e;
+    color: #fff;
+    border: 1px solid #3a3a3c;
+    border-radius: 8px;
+    font-size: 14px;
+    padding: 6px 8px;
+    text-align: center;
+}
+
+.log-edit-set-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.log-edit-set-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    background: #1c1c1e;
+    border-radius: 8px;
+    padding: 8px;
+}
+.log-edit-set-num {
+    font-size: 12px;
+    font-weight: 700;
+    color: #8e8e93;
+    flex: 0 0 44px;
+}
+.log-edit-set-row label {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 11px;
+    color: #8e8e93;
+    flex: 1 1 70px;
+    min-width: 60px;
+}
+.log-edit-set-row input {
+    background: #2c2c2e;
+    color: #fff;
+    border: 1px solid #3a3a3c;
+    border-radius: 6px;
+    font-size: 13px;
+    padding: 6px 6px;
+    text-align: center;
+}
+.log-edit-set-row input:focus { outline: none; border-color: #30d158; }
+
+/* ── Progress log card header (title + Edit button) ─────────────── */
+.prog-log-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+.prog-log-header-row h4 { flex: 1; min-width: 0; }
+
+/* ── Edit-current-exercise button (Workout tab) ──────────────────── */
+.edit-current-ex-btn {
+    display: block;
+    width: 100%;
+    margin-top: 10px;
+    background: #2c2c2e;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 10px;
+    border-radius: 10px;
+    border: none;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+.edit-current-ex-btn:active { opacity: 0.7; }
