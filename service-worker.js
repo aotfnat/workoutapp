@@ -1,6 +1,6 @@
 // service-worker.js
 // Version 10.5 — Exercise machine Watt intergration
-const CACHE_NAME = 'fitness-app-v10.5';
+const CACHE_NAME = 'fitness-app-v10.5.1';
 
 const BASE = self.location.pathname.replace(/\/service-worker\.js$/, '');
 const urlsToCache = [
