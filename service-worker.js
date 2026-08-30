@@ -1,6 +1,7 @@
 // service-worker.js
-// Version 10.7 — Cache bump to pick up app.js's background-timer accuracy fix
-const CACHE_NAME = 'fitness-app-v10.7';
+// Version 10.8 — Cache bump to pick up the new Keep Screen Awake setting
+// (app.js + index.html)
+const CACHE_NAME = 'fitness-app-v10.8';
 
 const BASE = self.location.pathname.replace(/\/service-worker\.js$/, '');
 const urlsToCache = [

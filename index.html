@@ -1,10 +1,8 @@
 <!-- index.html Workout App -->
-<!-- Version 10.5, SOC: Added a second modal (#log-edit-modal /
-     #log-edit-modal-overlay) for editing a logged workout's exercises
-     from the Progress tab — see app.js editProgressLog(). Reuses the
-     .ex-modal-title / .ex-modal-footer / .ex-modal-cancel / .ex-modal-next
-     classes for consistent chrome with the existing exercise-form modal;
-     only the overlay/container/body/list styling is new (see styles.css). -->
+<!-- Version 10.8, SOC: Added a "Keep Screen Awake" checkbox to the
+     Settings tab (#keep-screen-awake), backed by the Screen Wake Lock
+     API in app.js. Also added a hint line (#keep-screen-awake-hint)
+     that app.js fills in when the browser doesn't support the API. -->
 
 <!DOCTYPE html>
 <html lang="en">
@@ -147,6 +145,11 @@
                     <span>📈 Show Trend Lines on Progress Charts</span>
                     <input type="checkbox" id="show-trend-lines">
                 </label>
+                <label class="settings-checkbox-row">
+                    <span>🔆 Keep Screen Awake (prevent auto-lock/dimming)</span>
+                    <input type="checkbox" id="keep-screen-awake">
+                </label>
+                <p id="keep-screen-awake-hint" class="settings-hint"></p>
                 <button onclick="saveSettings()">💾 Save Settings</button>
             </div>
 

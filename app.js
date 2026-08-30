@@ -1,21 +1,13 @@
 // app.js
-//Version 10.7
-//SOC: Fixed the active/rest workout timer drifting or freezing when the
-//     app is backgrounded (e.g. switching apps mid-exercise-bike workout).
-//     runRestTimer/runCountdownTimer/runCountupTimer previously tracked
-//     time by incrementing/decrementing a counter once per setInterval
-//     tick, but mobile browsers throttle or fully suspend setInterval
-//     while the app isn't visible — so the displayed time could fall
-//     behind real elapsed time, or freeze outright until enough ticks
-//     fired to catch up (sometimes never, if a phase should already have
-//     completed). All three timers now compute their displayed value
-//     from a fixed wall-clock target/reference (timerTargetTime) via
-//     Date.now(), so every tick is self-correcting no matter how late it
-//     fires. Added resyncWorkoutTimer(), called from the existing
-//     visibilitychange listener, to force an immediate recompute (and
-//     fire any phase transition that should already have happened, e.g.
-//     rest → active) the moment the app returns to the foreground,
-//     instead of waiting on a possibly-delayed tick.
+//Version 10.8
+//SOC: Added an optional "Keep Screen Awake" setting (Settings tab) backed
+//     by the Screen Wake Lock API (requestWakeLock/releaseWakeLock). When
+//     enabled, the app requests a screen wake lock on load and re-requests
+//     it whenever the tab returns to the foreground (the browser always
+//     releases the lock on backgrounding, so it can't simply be requested
+//     once). Falls back silently (with a Settings hint) on browsers that
+//     don't support the API (e.g. iOS Safari < 16.4). Off by default.
+
 
 // ── Schema version guard ─────────────────────────────────────────
 // Bump SCHEMA_VERSION whenever the data model changes in a breaking way.
@@ -65,6 +57,7 @@ let userSettings = JSON.parse(localStorage.getItem('userSettings'))
     };
 if (!userSettings.heightUnit) userSettings.heightUnit = 'in';
 if (userSettings.showTrendLines === undefined) userSettings.showTrendLines = false;
+if (userSettings.keepScreenAwake === undefined) userSettings.keepScreenAwake = false;
 
 // ── Body-weight helpers ──────────────────────────────────────────
 function getUserWeightInWorkingUnit() {
@@ -3153,6 +3146,45 @@ function activateWaitingSW(sw) {
     });
 }
 
+// ── SCREEN WAKE LOCK ───────────────────────────────────────────────
+// Optional setting (Settings tab) that prevents the device from dimming
+// or auto-locking while the app is open. Backed by the standard Screen
+// Wake Lock API. The browser ALWAYS releases an active wake lock the
+// moment the tab/app is backgrounded — there's no way to hold it through
+// a backgrounding — so it must be re-requested every time the app returns
+// to the foreground (handled in the visibilitychange listener in BOOT).
+let wakeLockSentinel = null;
+
+function wakeLockSupported() {
+    return 'wakeLock' in navigator;
+}
+
+async function requestWakeLock() {
+    if (!wakeLockSupported()) return;
+    // Nothing to do if we already hold one
+    if (wakeLockSentinel) return;
+    try {
+        wakeLockSentinel = await navigator.wakeLock.request('screen');
+        wakeLockSentinel.addEventListener('release', () => {
+            // Fires both when we release it ourselves and when the browser
+            // releases it automatically (e.g. tab backgrounded) — either
+            // way, clear the reference so the next request isn't skipped.
+            wakeLockSentinel = null;
+        });
+    } catch (e) {
+        // Can fail if the tab isn't visible yet, battery saver is on, etc.
+        // Fail silently — this is a nice-to-have, not critical functionality.
+        wakeLockSentinel = null;
+    }
+}
+
+function releaseWakeLock() {
+    if (wakeLockSentinel) {
+        wakeLockSentinel.release().catch(() => {});
+        wakeLockSentinel = null;
+    }
+}
+
 // ── SOUNDS ───────────────────────────────────────────────────────
 let _audioCtx = null;
 // Set true whenever the app returns to the foreground so the next genuine
@@ -4131,6 +4163,12 @@ function loadSettings() {
     if (huEl) huEl.value = userSettings.heightUnit || 'in';
     const trendEl = document.getElementById('show-trend-lines');
     if (trendEl) trendEl.checked = !!userSettings.showTrendLines;
+    const wakeEl = document.getElementById('keep-screen-awake');
+    if (wakeEl) wakeEl.checked = !!userSettings.keepScreenAwake;
+    const wakeHintEl = document.getElementById('keep-screen-awake-hint');
+    if (wakeHintEl && !wakeLockSupported()) {
+        wakeHintEl.textContent = '⚠ Not supported in this browser — the screen may still dim or lock.';
+    }
     updateSettingsWeightLabel();
     updateSettingsHeightLabel();
     renderCustomLibraryList();
@@ -4213,6 +4251,7 @@ function saveSettings() {
     const weightUnit = document.getElementById('weight-unit').value;
     const heightUnit = (document.getElementById('height-unit')?.value) || 'in';
     const showTrendLines = document.getElementById('show-trend-lines')?.checked || false;
+    const keepScreenAwake = document.getElementById('keep-screen-awake')?.checked || false;
     if (weightVal && weightVal <= 0) { alert('Please enter a positive body weight.'); return; }
     if (heightVal && heightVal <= 0) { alert('Please enter a positive height.'); return; }
 
@@ -4245,7 +4284,11 @@ function saveSettings() {
     userSettings.weightUnit = weightUnit;
     userSettings.heightUnit = heightUnit;
     userSettings.showTrendLines = showTrendLines;
+    userSettings.keepScreenAwake = keepScreenAwake;
     localStorage.setItem('userSettings', JSON.stringify(userSettings));
+
+    if (keepScreenAwake) requestWakeLock();
+    else releaseWakeLock();
 
     // Update input fields to show converted values
     if (newWeight !== '') document.getElementById('user-weight').value = newWeight;
@@ -4270,6 +4313,10 @@ document.addEventListener('DOMContentLoaded', () => {
             // Next Set, etc.) retries inside a genuine gesture via ensureAudioUnlocked().
             _audioNeedsResume = true;
             resumeAudioContext();
+            // The Wake Lock API always releases the lock when the tab is
+            // backgrounded, so it has to be explicitly re-acquired every
+            // time the app comes back to the foreground.
+            if (userSettings.keepScreenAwake) requestWakeLock();
             // Re-check auto-complete each time app comes to foreground
             const raw = localStorage.getItem('inProgressWorkout');
             if (raw && !workoutInProgress) {
@@ -4296,6 +4343,8 @@ document.addEventListener('DOMContentLoaded', () => {
     switchTab('calendar');
     // If a workout was restored, navigate straight to the workout tab
     if (wasRestored && workoutInProgress) switchTab('workout');
+
+    if (userSettings.keepScreenAwake) requestWakeLock();
 });
 
 if ('serviceWorker' in navigator) {
