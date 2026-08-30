@@ -1,27 +1,22 @@
 // app.js
-//Version 10.5
-//SOC: Added three workflow features. (1) Progress tab: each logged
-//     workout now has an Edit (✏️) button that opens a modal to adjust
-//     exercise name, sets count, and each set's active time / logged
-//     reps-distance-watts / added weight, then recomputes that log's
-//     Work/Power totals on Save (editProgressLog, logEditModalSave, and
-//     related log-edit-* helpers). (2) Workout tab: an "Edit This
-//     Exercise" button below the Previous Accomplishment block opens the
-//     same exercise-form modal used by the Plan tab (Phase excluded —
-//     can't be changed mid-workout) scoped to ONLY the currently-running
-//     exercise; the active/rest timer is paused while the form is open,
-//     resumes exactly where it was on Cancel, or resets to the start of
-//     the (now-edited) exercise on Save (editCurrentExercise,
-//     applyWorkoutExerciseEdit, pauseTimerForEdit,
-//     resumeTimerAfterEditCancel). (3) Plan tab exercise form: the
-//     Distance (m) field under Body Weight % is now hidden for all
-//     isotonic/Cardio-weight-mode meters-based exercises (e.g. Running) —
-//     it duplicated the Target field, which already doubles as the
-//     distance-per-set value for those types. Cardio/Watt watts-mode is
-//     unaffected (Distance still shows there since Target is hidden for
-//     it instead). Old exercises that already had a distinct distanceM
-//     value now surface it via Target the first time they're reopened for
-//     editing, so no data is silently dropped.
+//Version 10.6
+//SOC: Fixed Work/Power calculation for Cardio/Watt exercises. calcSetMetrics
+//     previously routed every exercise type through the Force × Distance
+//     model, but Cardio/Watt watts-mode deliberately forces bodyWeightPct
+//     to 0 (the equipment console already accounts for body weight), so
+//     Force — and therefore Work — always computed to 0, and for timed
+//     (seconds/minutes) cardio sets Power came out null/hidden entirely
+//     (the height-based distance-per-rep fallback doesn't apply to
+//     cardio and returned null). This was a pre-existing gap dating to
+//     the original Cardio/Watt feature, not something the log-edit
+//     feature introduced — it just surfaced it by being the first thing
+//     to recompute totals after a workout was already logged. Added a
+//     dedicated watts-based branch (Work = watts × time, Power = watts,
+//     converted to ft-lbf(/s) for imperial the same way J → ft-lbf
+//     already works elsewhere), and fixed calcExerciseTotals to feed the
+//     logged watts value in regardless of unit (previously the
+//     meters/distance-target case ignored watts and used distance
+//     instead, same as the timed case used to before this fix).
 
 // ── Schema version guard ─────────────────────────────────────────
 // Bump SCHEMA_VERSION whenever the data model changes in a breaking way.
@@ -172,6 +167,23 @@ function calcDistMeters(ex, distInput) {
 // workJ / powerW are in J (metric) or ft-lbf (imperial).
 // tensionLoad is in N·s (metric) or lbf·s (imperial).
 function calcSetMetrics(ex, addedWeight, repsOrDist, setTimeSec) {
+    // Cardio/Watt watts-mode: the user logs average watts straight from
+    // the equipment console, which already accounts for body weight and
+    // resistance — Work = watts × time, Power = watts. This bypasses the
+    // force/distance model entirely (Force would always be 0 here since
+    // bodyWeightPct is forced to 0 for this mode, which previously made
+    // Work always compute to 0/null instead of using the logged watts).
+    if (ex.type === 'cardio' && ex.inputMode === 'watts') {
+        const watts  = repsOrDist || 0;   // repsOrDist carries the logged watts value
+        const dur    = setTimeSec || 0;
+        const joules = watts * dur;
+        // Watts (J/s) is unit-agnostic; convert to ft-lbf(/s) for imperial
+        // display the same way the rest of the app converts J → ft-lbf.
+        const workJ  = isMetric() ? joules : joules * 0.737562;
+        const powerW = dur > 0 ? (isMetric() ? watts : watts * 0.737562) : null;
+        return { workJ, powerW, tensionLoad: null };
+    }
+
     const force = calcForce(ex, addedWeight);
 
     if (ex.type === 'isometric') {
@@ -200,14 +212,21 @@ function calcExerciseTotals(ex) {
     let totalWork = 0, totalPower = 0, totalTension = 0;
     let powerCount = 0;
     const isIso = ex.type === 'isometric';
+    const isCardioWattsEx = ex.type === 'cardio' && ex.inputMode === 'watts';
 
     for (let i = 0; i < (ex.sets || 0); i++) {
         const addedW    = (ex.weights     || [])[i] || 0;
         const setTimeSec = (ex.setTimes   || [])[i] || 0;
         let repsOrDist  = 0;
         if (!isIso) {
-            if (ex.unit === 'reps')   repsOrDist = ex.target || 0;
-            else if (ex.unit === 'meters') repsOrDist = ex.distanceM || ex.target || 0;
+            // Cardio/Watt always uses the logged watts value, regardless of
+            // whether the exercise is timed (seconds/minutes) or has a
+            // distance target (meters) — previously the meters case fell
+            // through to the distance branch below and ignored the watts
+            // value entirely.
+            if (isCardioWattsEx)            repsOrDist = (ex.userInputs || [])[i] || 0;
+            else if (ex.unit === 'reps')    repsOrDist = ex.target || 0;
+            else if (ex.unit === 'meters')  repsOrDist = ex.distanceM || ex.target || 0;
             else repsOrDist = (ex.userInputs || [])[i] || 0;
         }
         const m = calcSetMetrics(ex, addedW, repsOrDist, setTimeSec);
