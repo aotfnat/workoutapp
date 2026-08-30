@@ -1,7 +1,8 @@
 // service-worker.js
-// Version 10.8 — Cache bump to pick up the new Keep Screen Awake setting
-// (app.js + index.html)
-const CACHE_NAME = 'fitness-app-v10.8';
+// Version 10.9 — Cache bump to pick up app.js v10.9 (Set Next fix,
+// unilateral body-weight display fix, Cardio/Watt type-toggle layout fix,
+// Open-ended Cardio/Watt unit) and styles.css v10.6.
+const CACHE_NAME = 'fitness-app-v10.9';
 
 const BASE = self.location.pathname.replace(/\/service-worker\.js$/, '');
 const urlsToCache = [
