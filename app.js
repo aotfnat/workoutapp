@@ -1,22 +1,21 @@
 // app.js
-//Version 10.6
-//SOC: Fixed Work/Power calculation for Cardio/Watt exercises. calcSetMetrics
-//     previously routed every exercise type through the Force × Distance
-//     model, but Cardio/Watt watts-mode deliberately forces bodyWeightPct
-//     to 0 (the equipment console already accounts for body weight), so
-//     Force — and therefore Work — always computed to 0, and for timed
-//     (seconds/minutes) cardio sets Power came out null/hidden entirely
-//     (the height-based distance-per-rep fallback doesn't apply to
-//     cardio and returned null). This was a pre-existing gap dating to
-//     the original Cardio/Watt feature, not something the log-edit
-//     feature introduced — it just surfaced it by being the first thing
-//     to recompute totals after a workout was already logged. Added a
-//     dedicated watts-based branch (Work = watts × time, Power = watts,
-//     converted to ft-lbf(/s) for imperial the same way J → ft-lbf
-//     already works elsewhere), and fixed calcExerciseTotals to feed the
-//     logged watts value in regardless of unit (previously the
-//     meters/distance-target case ignored watts and used distance
-//     instead, same as the timed case used to before this fix).
+//Version 10.7
+//SOC: Fixed the active/rest workout timer drifting or freezing when the
+//     app is backgrounded (e.g. switching apps mid-exercise-bike workout).
+//     runRestTimer/runCountdownTimer/runCountupTimer previously tracked
+//     time by incrementing/decrementing a counter once per setInterval
+//     tick, but mobile browsers throttle or fully suspend setInterval
+//     while the app isn't visible — so the displayed time could fall
+//     behind real elapsed time, or freeze outright until enough ticks
+//     fired to catch up (sometimes never, if a phase should already have
+//     completed). All three timers now compute their displayed value
+//     from a fixed wall-clock target/reference (timerTargetTime) via
+//     Date.now(), so every tick is self-correcting no matter how late it
+//     fires. Added resyncWorkoutTimer(), called from the existing
+//     visibilitychange listener, to force an immediate recompute (and
+//     fire any phase transition that should already have happened, e.g.
+//     rest → active) the moment the app returns to the foreground,
+//     instead of waiting on a possibly-delayed tick.
 
 // ── Schema version guard ─────────────────────────────────────────
 // Bump SCHEMA_VERSION whenever the data model changes in a breaking way.
@@ -352,6 +351,14 @@ let timerRemaining      = 0;   // for countdown/rest: seconds left
 let timerElapsed        = 0;   // for countup: seconds elapsed
 let currentRestDuration = 0;   // full rest duration for the current rest phase (for reset)
 let currentActiveDuration = 0; // full active countdown duration for the current active phase (for reset)
+
+// Wall-clock target/reference used to keep the timer accurate across
+// background throttling/suspension (see resyncWorkoutTimer below). For
+// countdown/rest, this is the timestamp the phase should hit zero at. For
+// countup, it's treated as an adjusted "start" reference so
+// (Date.now() - timerTargetTime) always yields the correct elapsed time,
+// including when resuming from a paused elapsed value.
+let timerTargetTime     = null;
 
 let soundEnabled = JSON.parse(localStorage.getItem('soundEnabled') ?? 'true');
 
@@ -2036,6 +2043,7 @@ function stopExerciseTimer() {
     timerRemaining = 0;
     timerElapsed   = 0;
     setStartTime   = null;
+    timerTargetTime = null;
     updateHudTimerDisplay();
     updatePauseResumeBtn();
 }
@@ -2180,25 +2188,19 @@ function skipToEndOfRest() {
     // the remaining time was to 3, then ticks down to 2 on its next cycle).
     // Play the 3-second beep immediately so the user hears all three (3,2,1).
     playBeep();
+    // Re-anchor the wall-clock target to "3 seconds from now" so
+    // tickRestTimer's Date.now()-based math (see below) counts down from
+    // the right point regardless of paused/running state.
+    timerTargetTime = Date.now() + 3000;
     // If paused, resume from 3s; if already running the interval will
-    // pick up timerRemaining naturally on its next tick
+    // pick up the new target naturally on its next tick
     if (timerMode === 'paused-rest') {
         clearInterval(timerInterval);
         timerInterval = null;
         timerMode = 'rest';
         currentRestDuration = 3;
         updateHudTimerDisplay();
-        timerInterval = setInterval(() => {
-            timerRemaining--;
-            updateHudTimerDisplay();
-            if (timerRemaining <= 3 && timerRemaining > 0) playBeep();
-            if (timerRemaining <= 0) {
-                clearInterval(timerInterval);
-                timerInterval = null;
-                playWhistle();
-                startActiveTimer();
-            }
-        }, 1000);
+        timerInterval = setInterval(tickRestTimer, 1000);
     } else {
         // Already running — just update display; interval will count down from 3
         updateHudTimerDisplay();
@@ -2206,23 +2208,38 @@ function skipToEndOfRest() {
 }
 
 
+// Runs the countdown for a rest period. Rather than simply decrementing
+// timerRemaining once per tick — which silently falls behind (or freezes
+// entirely) whenever the browser throttles or suspends setInterval while
+// the app is backgrounded, e.g. the user switching away mid-rest during a
+// long cardio session — timerRemaining is recomputed on every tick from a
+// fixed wall-clock target (timerTargetTime). This makes the timer
+// self-correcting: whenever the tick actually fires (even late, or after
+// resyncWorkoutTimer() forces a recompute on returning to the foreground),
+// it reflects real elapsed time rather than however many ticks fired.
 function runRestTimer(durationSec) {
     clearInterval(timerInterval);
     timerMode           = 'rest';
     timerRemaining      = durationSec;
     currentRestDuration = durationSec;   // remember full duration for reset
+    timerTargetTime     = Date.now() + durationSec * 1000;
     updateHudTimerDisplay();
-    timerInterval = setInterval(() => {
-        timerRemaining--;
+    timerInterval = setInterval(tickRestTimer, 1000);
+}
+
+function tickRestTimer() {
+    const remaining = Math.max(0, Math.ceil((timerTargetTime - Date.now()) / 1000));
+    if (remaining !== timerRemaining) {
+        if (remaining <= 3 && remaining > 0 && remaining < timerRemaining) playBeep();
+        timerRemaining = remaining;
         updateHudTimerDisplay();
-        if (timerRemaining <= 3 && timerRemaining > 0) playBeep();
-        if (timerRemaining <= 0) {
-            clearInterval(timerInterval);
-            timerInterval = null;
-            playWhistle();
-            startActiveTimer();
-        }
-    }, 1000);
+    }
+    if (timerRemaining <= 0) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+        playWhistle();
+        startActiveTimer();
+    }
 }
 
 // ── Start rest before first set of this exercise, then active ─────
@@ -2282,23 +2299,30 @@ function startActiveTimer() {
     }
 }
 
+// Same self-correcting, wall-clock-based approach as tickRestTimer above.
 function runCountdownTimer(durationSec) {
     clearInterval(timerInterval);
     timerMode             = 'countdown';
     timerRemaining        = durationSec;
     currentActiveDuration = durationSec;   // remember full duration for reset
+    timerTargetTime       = Date.now() + durationSec * 1000;
     updateHudTimerDisplay();
-    timerInterval = setInterval(() => {
-        timerRemaining--;
+    timerInterval = setInterval(tickCountdownTimer, 1000);
+}
+
+function tickCountdownTimer() {
+    const remaining = Math.max(0, Math.ceil((timerTargetTime - Date.now()) / 1000));
+    if (remaining !== timerRemaining) {
+        if (remaining <= 3 && remaining > 0 && remaining < timerRemaining) playBeep();
+        timerRemaining = remaining;
         updateHudTimerDisplay();
-        if (timerRemaining <= 3 && timerRemaining > 0) playBeep();
-        if (timerRemaining <= 0) {
-            clearInterval(timerInterval);
-            timerInterval = null;
-            playBuzzer();
-            onCountdownComplete();
-        }
-    }, 1000);
+    }
+    if (timerRemaining <= 0) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+        playBuzzer();
+        onCountdownComplete();
+    }
 }
 
 function runCountupTimer() {
@@ -2307,16 +2331,40 @@ function runCountupTimer() {
     resumeCountupTimer();
 }
 
+// Resume from current timerElapsed without resetting it. timerTargetTime is
+// used as an adjusted "start" reference (now minus whatever elapsed time is
+// already banked) so tickCountupTimer's Date.now()-based math — self-
+// correcting the same way the countdown/rest timers above are — continues
+// seamlessly across a pause, a mid-workout exercise edit, or the app being
+// backgrounded and resynced.
 function resumeCountupTimer() {
-    // Resume from current timerElapsed without resetting it
     clearInterval(timerInterval);
     timerMode = 'countup';
     currentActiveDuration = 0; // countup has no fixed duration
+    timerTargetTime = Date.now() - timerElapsed * 1000;
     updateHudTimerDisplay();
-    timerInterval = setInterval(() => {
-        timerElapsed++;
-        updateHudTimerDisplay();
-    }, 1000);
+    timerInterval = setInterval(tickCountupTimer, 1000);
+}
+
+function tickCountupTimer() {
+    timerElapsed = Math.max(0, Math.round((Date.now() - timerTargetTime) / 1000));
+    updateHudTimerDisplay();
+}
+
+// Called when the app returns to the foreground (see the visibilitychange
+// listener in the BOOT section). Background tabs/apps routinely throttle or
+// fully suspend setInterval, so a countdown/rest timer's on-screen value can
+// silently freeze while the user is away — this forces an immediate
+// recompute against the real wall clock (and fires the normal phase
+// transition, e.g. rest → active, if it should already have happened)
+// rather than waiting for a possibly-delayed tick.
+function resyncWorkoutTimer() {
+    if (!workoutInProgress) return;
+    if (timerMode === 'rest')           tickRestTimer();
+    else if (timerMode === 'countdown') tickCountdownTimer();
+    else if (timerMode === 'countup')   tickCountupTimer();
+    // Paused states are left alone — the user explicitly paused, so no
+    // background time should be applied.
 }
 
 // Called when a countdown finishes (isometric or timed-isotonic)
@@ -2817,6 +2865,7 @@ function resetTimerFromDrawer() {
     clearInterval(timerInterval);
     timerInterval = null;
     setStartTime  = null;
+    timerTargetTime = null;
 
     // Determine what state we're in and reset to its starting value, staying paused
     if (timerMode === 'rest' || timerMode === 'paused-rest') {
@@ -4239,6 +4288,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (workoutInProgress) {
                 syncElapsedDisplay();
                 startElapsedClock();
+                resyncWorkoutTimer();
             }
         }
     });
