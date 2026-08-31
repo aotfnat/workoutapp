@@ -1,21 +1,15 @@
 // app.js
-//Version 10.9
-//SOC: (1) Fixed "Set Next" on a non-active Plan workout advancing to the
-//     WRONG workout (advanceToWorkout was off-by-one — it jumped to
-//     wIdx+1 instead of wIdx). (2) Body weight shown in the Add/Edit
-//     Exercise preview, Plan tab exercise rows, and the Workout tab
-//     exercise card for unilateral exercises no longer doubles — that
-//     doubled value is still used internally for Work/Power (calcForce),
-//     just not shown to the user (see getBodyWeightForce). (3) Removed
-//     the lightning-bolt icon from the Cardio/Watt exercise-type option
-//     and let the 3-way Isotonic/Isometric/Cardio-Watt toggle wrap to two
-//     rows on narrow screens so no label gets clipped. (4) Added an
-//     "Open-ended (no target)" unit option for Cardio/Watt watts-mode
-//     exercises — runs a plain count-up timer with no distance/duration
-//     target, for e.g. riding a bike for an undetermined time/distance;
-//     Work/Power for Cardio/Watt was already computed purely from logged
-//     watts × measured elapsed time, so no target was ever required for
-//     the math, only for display.
+//Version 11.0
+//SOC: Progress tab log-edit modal — exercises with Active Period measured
+//     in Reps or Meters (non-Cardio/Watt) previously had no way to edit
+//     the logged Reps/Distance value, since that value isn't a per-set
+//     input; it's a single Target shared across every set (see
+//     calcExerciseTotals). Added an editable Reps/Distance(m) field on
+//     the same line as the Sets field in renderLogEditExercise, wired to
+//     a new logEditExerciseTargetChange handler that updates ex.target
+//     (and clears any legacy ex.distanceM for meters exercises so it
+//     doesn't silently override the edit — see the Plan-tab Distance-field
+//     migration from the prior change).
 
 
 // ── Schema version guard ─────────────────────────────────────────
@@ -3596,6 +3590,18 @@ function renderLogEditModal() {
 // One exercise's editable block: name, sets count, and per-set rows.
 function renderLogEditExercise(ex, eIdx) {
     const phaseIcon = ({ warmup: '🌡', work: '💪', cooldown: '❄️' })[ex.phase || 'work'] || '';
+    const isIso = ex.type === 'isometric';
+    const isCardioWatts = ex.type === 'cardio' && ex.inputMode === 'watts';
+    // Reps/Meters exercises (count-up, not Cardio/Watt) don't log a
+    // per-set value — the same Target (reps or distance) applies to every
+    // set — so it's edited once here, next to Sets, rather than per-set
+    // in the rows below.
+    const showTargetField = !isIso && !isCardioWatts && (ex.unit === 'reps' || ex.unit === 'meters');
+    const targetLabel = ex.unit === 'meters' ? 'Distance (m)' : 'Reps';
+    const targetFieldHTML = showTargetField
+        ? `<label>${targetLabel} <input type="number" min="0" step="1" value="${ex.target ?? 0}"
+                oninput="logEditExerciseTargetChange(${eIdx}, this.value)"></label>`
+        : '';
     return `
         <div class="log-edit-ex-block">
             <div class="log-edit-ex-header">
@@ -3606,6 +3612,7 @@ function renderLogEditExercise(ex, eIdx) {
             <div class="log-edit-sets-count">
                 <label>Sets <input type="number" min="1" step="1" value="${ex.sets}"
                     oninput="logEditSetsCountChange(${eIdx}, this.value)"></label>
+                ${targetFieldHTML}
             </div>
             ${renderLogEditSetRows(ex, eIdx)}
         </div>
@@ -3651,6 +3658,18 @@ function logEditExerciseField(eIdx, field, value) {
     const ex = _logEditModal.exercises?.[eIdx];
     if (!ex) return;
     ex[field] = value;
+}
+
+// Reps/Meters exercises store one Target value shared across every set
+// (see renderLogEditExercise) rather than a per-set logged value.
+function logEditExerciseTargetChange(eIdx, value) {
+    const ex = _logEditModal.exercises?.[eIdx];
+    if (!ex) return;
+    ex.target = parseFloat(value) || 0;
+    // Target is the canonical distance value for non-Cardio/Watt meters
+    // exercises (see the Plan-tab exercise form) — clear any legacy
+    // distanceM so it doesn't silently override this edit on recompute.
+    if (ex.unit === 'meters') ex.distanceM = null;
 }
 
 function logEditSetField(eIdx, setIdx, field, value) {
