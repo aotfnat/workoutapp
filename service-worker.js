@@ -1,7 +1,7 @@
 // service-worker.js
 // Version 11.0 — Cache bump to pick up app.js and styles.css for making Reps/Distance editable on completed workouts
 
-const CACHE_NAME = 'fitness-app-v10.9';
+const CACHE_NAME = 'fitness-app-v11.0';
 
 const BASE = self.location.pathname.replace(/\/service-worker\.js$/, '');
 const urlsToCache = [
