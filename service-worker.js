@@ -1,5 +1,5 @@
 // service-worker.js
-// Version 11.0 — Cache bump to pick up app.js and styles.css for making Reps/Distance editable on completed workouts
+// Version 11.1 — Cache bump to pick up styles.css for weekly plan always being a single column
 
 const CACHE_NAME = 'fitness-app-v11.0';
 

@@ -1,11 +1,9 @@
 /* ── styles.css ── iPhone-optimised PWA ──────────────────────────── */
-/* Version 11.0; SOC: Made .log-edit-sets-count a flex row so the new
-   Reps/Distance field sits on the same line as Sets in the Progress tab's
-   log-edit modal (see app.js renderLogEditExercise). */
-
+/* Version 11.1; SOC: weekly-plan always uses a single column, removing the auto-fit behavior. */
+ 
 /* ── Reset & base ──────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
-
+ 
 body {
     margin: 0;
     padding: 0;
@@ -16,14 +14,14 @@ body {
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
 }
-
+ 
 #app {
     display: flex;
     flex-direction: column;
     height: 100dvh;   /* dynamic viewport height — handles iOS safari toolbar */
     overflow: hidden;
 }
-
+ 
 /* ── Scrollable content area ────────────────────────────────────── */
 .content-area {
     flex: 1;
@@ -32,15 +30,15 @@ body {
     padding-bottom: calc(16px + env(safe-area-inset-bottom));
 }
 .content-area::-webkit-scrollbar { display: none; }
-
-
+ 
+ 
 /* ── Tab content panels ─────────────────────────────────────────── */
 .tab-content {
     display: none;
     padding: 16px;
 }
 .tab-content.active { display: block; }
-
+ 
 .tab-content h2 {
     margin: -16px -16px 16px;
     font-size: 22px;
@@ -57,7 +55,7 @@ body {
     background: #f0f0f5;
     padding: 16px 16px 12px;
 }
-
+ 
 /* ── Plan tab — weekly grid ─────────────────────────────────────── */
 #weekly-plan {
     display: grid;
@@ -65,7 +63,7 @@ body {
     gap: 12px;
     margin-bottom: 16px;
 }
-
+ 
 /* Landscape: force single column regardless of available width or viewport height —
    auto-fit would otherwise pack 2-3 narrow columns on a rotated iPhone */
 @media (orientation: landscape) {
@@ -73,7 +71,7 @@ body {
         grid-template-columns: 1fr;
     }
 }
-
+ 
 .day {
     background: #fff;
     padding: 12px;
@@ -85,7 +83,7 @@ body {
     font-size: 16px;
     color: #1c1c1e;
 }
-
+ 
 .exercise {
     margin: 10px 0;
     font-size: 14px;
@@ -110,7 +108,7 @@ body {
     border-radius: 8px;
     text-align: center;
 }
-
+ 
 /* ── Buttons ────────────────────────────────────────────────────── */
 button {
     padding: 10px 18px;
@@ -131,7 +129,7 @@ button:disabled {
     background-color: #aeaeb2;
     cursor: default;
 }
-
+ 
 /* ── ═══════════════════════════════════════════════════════════════
    WORKOUT HUD  — elapsed (left) | rest timer (right)
    Always visible at the top of the workout tab, readable from feet away
@@ -149,7 +147,7 @@ button:disabled {
     top: 0;
     z-index: 10;
 }
-
+ 
 .hud-cell {
     flex: 1;
     display: flex;
@@ -157,13 +155,13 @@ button:disabled {
     align-items: flex-start;
     padding: 14px 18px;
 }
-
+ 
 /* Right cell: elapsed on left edge, rest on right edge */
 .hud-cell.hud-right {
     align-items: flex-end;
     border-left: 1px solid #3a3a3c;
 }
-
+ 
 .hud-label {
     font-size: 11px;
     font-weight: 600;
@@ -172,7 +170,7 @@ button:disabled {
     color: #8e8e93;
     margin-bottom: 4px;
 }
-
+ 
 /* HUD numbers — portrait default: compact but clear */
 .hud-time {
     font-size: 38px;
@@ -182,15 +180,15 @@ button:disabled {
     letter-spacing: -1.5px;
     color: #fff;
 }
-
+ 
 /* Active/Rest phase colours */
 #timer.timer-active           { color: #ff9f0a; }   /* orange = working      */
 #timer.timer-rest             { color: #30d158; }   /* green  = resting      */
 #timer.timer-rest.low         { color: #ff453a; }   /* red    = almost done  */
 #timer.timer-active.paused,
 #timer.timer-rest.paused      { opacity: 0.5; }     /* dim when paused       */
-
-
+ 
+ 
 /* ── Exercise card ──────────────────────────────────────────────── */
 #exercise-list {
     background: #fff;
@@ -233,14 +231,14 @@ button:disabled {
     color: #1c1c1e;
     margin: 0 0 6px;
 }
-
+ 
 /* Body weight force contribution line */
 .bw-force-text {
     font-size: 14px;
     color: #636366;
     margin: 0 0 14px;
 }
-
+ 
 /* Set navigation button row */
 .set-btn-row {
     display: flex;
@@ -248,7 +246,7 @@ button:disabled {
     align-items: stretch;
     margin-top: 4px;
 }
-
+ 
 /* Back / cancel button — 25% width */
 .back-set-btn {
     flex: 0 0 auto;
@@ -266,7 +264,7 @@ button:disabled {
     text-align: center;
 }
 .back-set-btn:active { opacity: 0.6; }
-
+ 
 /* Next Set button — 75% width */
 .next-set-btn,
 .set-btn-row .complete-btn {
@@ -283,7 +281,7 @@ button:disabled {
     -webkit-tap-highlight-color: transparent;
 }
 .next-set-btn:active { opacity: 0.7; }
-
+ 
 /* ── Complete workout button ────────────────────────────────────── */
 .complete-btn {
     width: 100%;
@@ -294,7 +292,7 @@ button:disabled {
     border-radius: 14px;
     margin: 0 0 12px;
 }
-
+ 
 /* ── Progress tab ───────────────────────────────────────────────── */
 #progress-log > div {
     background: #fff;
@@ -322,7 +320,7 @@ button:disabled {
     border-radius: 8px;
     padding: 6px 10px;
 }
-
+ 
 /* ── Two-chart progress layout ──────────────────────────────────── */
 #progress-charts-container {
     display: flex;
@@ -330,14 +328,14 @@ button:disabled {
     gap: 16px;
     margin-bottom: 16px;
 }
-
+ 
 .prog-chart-block {
     background: #fff;
     border: 1px solid #d1d1d6;
     border-radius: 14px;
     overflow: hidden;
 }
-
+ 
 .prog-chart-header {
     display: flex;
     align-items: center;
@@ -348,7 +346,7 @@ button:disabled {
     gap: 8px;
     flex-wrap: wrap;
 }
-
+ 
 .prog-chart-title {
     font-size: 13px;
     font-weight: 700;
@@ -356,7 +354,7 @@ button:disabled {
     flex: 1;
     min-width: 0;
 }
-
+ 
 .prog-select {
     font-size: 13px;
     font-weight: 600;
@@ -374,12 +372,12 @@ button:disabled {
     padding-right: 26px;
 }
 .prog-select:focus { outline: none; border-color: #007aff; }
-
+ 
 .prog-chart-wrap {
     padding: 10px 10px 14px;
     position: relative;
 }
-
+ 
 /* ── Settings tab ──────────────────────────────────────────────── */
 .settings-form {
     background: #fff;
@@ -390,7 +388,7 @@ button:disabled {
     flex-direction: column;
     gap: 16px;
 }
-
+ 
 .settings-form label {
     display: flex;
     flex-direction: column;
@@ -399,7 +397,7 @@ button:disabled {
     font-weight: 600;
     color: #3a3a3c;
 }
-
+ 
 /* Row that holds the number input + inline unit badge */
 .settings-input-row {
     display: flex;
@@ -409,7 +407,7 @@ button:disabled {
 .settings-input-row input {
     flex: 1;
 }
-
+ 
 /* Small coloured badge showing the current unit (lb / kg / in / cm) */
 .settings-unit-label {
     font-size: 13px;
@@ -422,7 +420,7 @@ button:disabled {
     text-align: center;
     flex-shrink: 0;
 }
-
+ 
 .settings-form input,
 .settings-form select {
     width: 100%;
@@ -433,12 +431,12 @@ button:disabled {
     background: #fff;
     color: #1c1c1e;
 }
-
+ 
 .settings-form button {
     margin-top: 8px;
     background: #30d158;
 }
-
+ 
 /* Explanatory hint text under settings fields */
 .settings-hint {
     font-size: 13px;
@@ -446,7 +444,7 @@ button:disabled {
     line-height: 1.5;
     margin: 0;
 }
-
+ 
 /* ── Hamburger menu button (inside HUD label row) ──────────────── */
 #menu-btn {
     background: none;
@@ -461,12 +459,12 @@ button:disabled {
     vertical-align: middle;
 }
 #menu-btn:active { opacity: 0.5; }
-
+ 
 .hud-label {
     display: flex;
     align-items: center;
 }
-
+ 
 /* ── Slide-up navigation drawer ─────────────────────────────────── */
 #menu-overlay {
     display: none;
@@ -476,7 +474,7 @@ button:disabled {
     z-index: 200;
 }
 #menu-overlay.open { display: block; }
-
+ 
 #menu-drawer {
     position: fixed;
     bottom: 0;
@@ -491,7 +489,7 @@ button:disabled {
     pointer-events: none;
 }
 #menu-drawer.open { transform: translateY(0); pointer-events: auto; }
-
+ 
 #menu-drawer-handle {
     width: 36px;
     height: 4px;
@@ -499,7 +497,7 @@ button:disabled {
     border-radius: 2px;
     margin: 0 auto 16px;
 }
-
+ 
 .menu-item {
     display: flex;
     align-items: center;
@@ -524,8 +522,8 @@ button:disabled {
     font-weight: 700;
 }
 .menu-item:active { opacity: 0.7; }
-
-
+ 
+ 
 /* ── Plan tab — program header (multiple workout programs) ─────── */
 .plan-header {
     position: sticky;
@@ -571,7 +569,7 @@ button:disabled {
     font-size: 16px;
     flex-shrink: 0;
 }
-
+ 
 /* ── Plan tab — workout cards ───────────────────────────────────── */
 .plan-empty {
     color: #636366;
@@ -579,7 +577,7 @@ button:disabled {
     text-align: center;
     padding: 24px 0;
 }
-
+ 
 .workout-card {
     background: #fff;
     border: 1px solid #d1d1d6;
@@ -595,7 +593,7 @@ button:disabled {
 }
 .workout-card.dragging  { opacity: 0.4; }
 .workout-card.drag-over { box-shadow: 0 0 0 3px #30d158; }
-
+ 
 .workout-card-header {
     display: flex;
     align-items: center;
@@ -604,7 +602,7 @@ button:disabled {
     flex-wrap: nowrap;    /* keep everything on one line */
     overflow: hidden;
 }
-
+ 
 .drag-handle {
     font-size: 18px;
     color: #aeaeb2;
@@ -616,7 +614,7 @@ button:disabled {
     flex-shrink: 0;
 }
 .drag-handle:active { cursor: grabbing; }
-
+ 
 .workout-seq {
     font-size: 11px;
     font-weight: 700;
@@ -624,7 +622,7 @@ button:disabled {
     min-width: 18px;
     flex-shrink: 0;
 }
-
+ 
 .workout-name-input {
     flex: 1 1 0;
     min-width: 0;         /* allow shrinking below content width */
@@ -640,7 +638,7 @@ button:disabled {
     white-space: nowrap;
 }
 .workout-name-input:focus { outline: none; border-bottom-color: #007aff; }
-
+ 
 .next-badge {
     font-size: 11px;
     font-weight: 700;
@@ -650,7 +648,7 @@ button:disabled {
     padding: 2px 7px;
     white-space: nowrap;
 }
-
+ 
 .icon-btn {
     background: none;
     border: none;
@@ -664,9 +662,9 @@ button:disabled {
 }
 .icon-btn.danger { color: #ff453a; }
 .icon-btn:active { opacity: 0.5; }
-
+ 
 .exercise-list { margin-bottom: 8px; }
-
+ 
 .card-actions button {
     font-size: 14px;
     padding: 8px 14px;
@@ -676,8 +674,8 @@ button:disabled {
     margin: 0;
 }
 .card-actions button:hover { background: #e5e5ea; }
-
-
+ 
+ 
 /* Start Workout button — prominent, full-width, disappears on tap */
 .start-workout-btn {
     display: block;
@@ -696,7 +694,7 @@ button:disabled {
     transition: opacity 0.15s;
 }
 .start-workout-btn:active { opacity: 0.7; }
-
+ 
 .workout-complete {
     font-size: 20px;
     font-weight: 700;
@@ -704,9 +702,9 @@ button:disabled {
     color: #30d158;
     padding: 20px 0;
 }
-
-
-
+ 
+ 
+ 
 /* ── Timer Start / Stop / Reset buttons ────────────────────────── */
 .timer-btn-row {
     display: flex;
@@ -724,10 +722,10 @@ button:disabled {
 #timer-start { background: #ff9f0a; }   /* orange — Active */
 #timer-stop  { background: #ff453a; }   /* red    — Stop   */
 #timer-reset { background: #636366; }   /* grey   — Reset  */
-
+ 
 /* ── HUD right cell tap hint ────────────────────────────────────── */
 .hud-cell.hud-right:active { opacity: 0.7; }
-
+ 
 /* ── Plan tab — next/set-next badge buttons ─────────────────────── */
 .next-badge-btn {
     font-size: 11px;
@@ -744,7 +742,7 @@ button:disabled {
     -webkit-tap-highlight-color: transparent;
 }
 .next-badge-btn:active { opacity: 0.6; }
-
+ 
 .set-next-btn {
     font-size: 11px;
     font-weight: 600;
@@ -760,7 +758,7 @@ button:disabled {
     -webkit-tap-highlight-color: transparent;
 }
 .set-next-btn:active { opacity: 0.6; }
-
+ 
 /* ── Timer settings side drawer (slides in from right) ──────────── */
 #timer-settings-overlay {
     display: none;
@@ -770,7 +768,7 @@ button:disabled {
     z-index: 300;
 }
 #timer-settings-overlay.open { display: block; }
-
+ 
 #timer-settings-drawer {
     position: fixed;
     top: 0;
@@ -789,7 +787,7 @@ button:disabled {
     pointer-events: none;
 }
 #timer-settings-drawer.open { transform: translateX(0); pointer-events: auto; }
-
+ 
 .ts-header {
     display: flex;
     align-items: center;
@@ -811,13 +809,13 @@ button:disabled {
     cursor: pointer;
 }
 .ts-close:active { opacity: 0.6; }
-
+ 
 .ts-section {
     display: flex;
     flex-direction: column;
     gap: 12px;
 }
-
+ 
 .ts-label {
     font-size: 13px;
     font-weight: 600;
@@ -826,13 +824,13 @@ button:disabled {
 }
 .timer-label-active { color: #ff9f0a; }
 .timer-label-rest   { color: #30d158; }
-
+ 
 .ts-stepper {
     display: flex;
     align-items: center;
     gap: 12px;
 }
-
+ 
 .ts-step-btn {
     width: 44px;
     height: 44px;
@@ -853,7 +851,7 @@ button:disabled {
     flex-shrink: 0;
 }
 .ts-step-btn:active { opacity: 0.6; }
-
+ 
 .ts-val {
     font-size: 36px;
     font-weight: 800;
@@ -868,8 +866,8 @@ button:disabled {
     color: #8e8e93;
     font-weight: 500;
 }
-
-
+ 
+ 
 /* ── Timer order toggle button ──────────────────────────────────── */
 .ts-order-toggle {
     width: 100%;
@@ -900,15 +898,15 @@ button:disabled {
 .ts-order-toggle:active { opacity: 0.7; }
 .sound-on  { background: #30d158; color: #fff; }
 .sound-off { background: #2c2c2e; color: #8e8e93; }
-
+ 
 .ts-hint {
     font-size: 13px;
     color: #636366;
     line-height: 1.5;
     margin: 0;
 }
-
-
+ 
+ 
 /* ── Plan tab — backup / restore buttons ───────────────────────── */
 .backup-row {
     display: flex;
@@ -927,18 +925,18 @@ button:disabled {
 .import-btn { background: #ff9f0a; }   /* orange — import */
 .export-btn:active,
 .import-btn:active { opacity: 0.7; }
-
-
+ 
+ 
 /* Hide floating button on workout tab — HUD has its own ☰ */
 #workout-section.active ~ * #floating-menu-btn,
 body:has(#workout-section.active) #floating-menu-btn {
     display: none;
 }
-
-
-
-
-
+ 
+ 
+ 
+ 
+ 
 /* ── Swipe-to-delete ─────────────────────────────────────────────── */
 .swipe-wrapper {
     position: relative;
@@ -979,7 +977,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     transform: translateX(0);
 }
 .swipe-delete-btn:active { opacity: 0.8; }
-
+ 
 /* While a card is being reordered (HTML5 drag or touch-drag), the card's
    opacity drops so the drop target is visible underneath — but that also
    reveals the red delete button sitting in the same wrapper. Hide it
@@ -990,7 +988,7 @@ body:has(#workout-section.active) #floating-menu-btn {
 .swipe-wrapper:has(.workout-card.dragging) .swipe-delete-btn {
     visibility: hidden;
 }
-
+ 
 .workout-card {
     position: relative;
     z-index: 1;
@@ -998,7 +996,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     border-radius: 14px;
     will-change: transform;
 }
-
+ 
 /* ── Disabled set / complete buttons ─────────────────────────────── */
 .next-set-btn:disabled,
 .complete-btn:disabled {
@@ -1006,7 +1004,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     cursor: default;
     opacity: 0.6;
 }
-
+ 
 /* ── Monthly calendar ────────────────────────────────────────────── */
 .cal-header {
     display: flex;
@@ -1032,7 +1030,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     touch-action: manipulation;
 }
 .cal-nav:active { opacity: 0.6; }
-
+ 
 .cal-grid {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
@@ -1080,7 +1078,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     bottom: 3px;
 }
 .cal-today .cal-dot { background: #fff; }
-
+ 
 /* ── Section heading menu button ────────────────────────────────── */
 .section-menu-btn {
     background: none;
@@ -1095,9 +1093,9 @@ body:has(#workout-section.active) #floating-menu-btn {
     -webkit-tap-highlight-color: transparent;
 }
 .section-menu-btn:active { opacity: 0.5; }
-
-
-
+ 
+ 
+ 
 /* ── Collapsible workout card ────────────────────────────────────── */
 .workout-card-header {
     cursor: pointer;
@@ -1113,7 +1111,7 @@ body:has(#workout-section.active) #floating-menu-btn {
 .card-body {
     margin-top: 8px;
 }
-
+ 
 /* ── Previous accomplishment block ──────────────────────────────── */
 .prev-accomplishment {
     margin-top: 10px;
@@ -1141,7 +1139,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     font-size: 13px;
     font-style: italic;
 }
-
+ 
 /* ── App update button (Calendar tab) ──────────────────────────── */
 .update-row {
     display: flex;
@@ -1168,14 +1166,14 @@ body:has(#workout-section.active) #floating-menu-btn {
     font-weight: 500;
     color: #30d158;
 }
-
+ 
 .app-version-label {
     font-size: 12px;
     color: #aeaeb2;
     margin: 4px 0 0;
 }
-
-
+ 
+ 
 /* ── Exercise entry modal ───────────────────────────────────────── */
 #ex-modal-overlay {
     display: none;
@@ -1185,7 +1183,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     z-index: 400;
 }
 #ex-modal-overlay.open { display: block; }
-
+ 
 #ex-modal {
     position: fixed;
     left: 50%;
@@ -1211,14 +1209,14 @@ body:has(#workout-section.active) #floating-menu-btn {
     pointer-events: auto;
     transform: translate(-50%, -50%) scale(1);
 }
-
+ 
 .ex-modal-title {
     font-size: 18px;
     font-weight: 700;
     color: #fff;
     text-align: center;
 }
-
+ 
 /* 2-column grid for unit buttons, 3-column for preset numbers */
 .ex-btn-grid {
     display: grid;
@@ -1226,7 +1224,7 @@ body:has(#workout-section.active) #floating-menu-btn {
 }
 .ex-btn-grid-2 { grid-template-columns: 1fr 1fr; }
 .ex-btn-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
-
+ 
 .ex-choice-btn {
     background: #2c2c2e;
     color: #fff;
@@ -1247,7 +1245,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     color: #8e8e93;
     font-size: 15px;
 }
-
+ 
 /* Manual entry row */
 #ex-manual-target-row,
 #ex-manual-sets-row {
@@ -1255,7 +1253,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     gap: 10px;
     align-items: center;
 }
-
+ 
 .ex-text-input {
     width: 100%;
     box-sizing: border-box;
@@ -1270,7 +1268,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     outline: none;
     border-color: #30d158;
 }
-
+ 
 .ex-num-input {
     flex: 0 1 110px;
     min-width: 0;
@@ -1287,13 +1285,13 @@ body:has(#workout-section.active) #floating-menu-btn {
     outline: none;
     border-color: #30d158;
 }
-
+ 
 .ex-modal-footer {
     display: flex;
     gap: 10px;
     justify-content: flex-end;
 }
-
+ 
 .ex-modal-cancel {
     background: #3a3a3c;
     color: #8e8e93;
@@ -1318,7 +1316,7 @@ body:has(#workout-section.active) #floating-menu-btn {
 }
 .ex-modal-cancel:active,
 .ex-modal-next:active { opacity: 0.7; }
-
+ 
 /* Landscape: shrink modal so it fits without scrolling */
 @media (orientation: landscape) and (max-height: 500px) {
     #ex-modal {
@@ -1331,31 +1329,31 @@ body:has(#workout-section.active) #floating-menu-btn {
     .ex-choice-btn { padding: 11px 6px; font-size: 15px; }
     .ex-modal-title { font-size: 15px; }
 }
-
+ 
 /* ── ═══════════════════════════════════════════════════════════════
    LANDSCAPE — iPhone rotated
    Shrink HUD numbers slightly so both clocks still fit side-by-side;
    reduce header and tab bar to reclaim vertical space.
    ═══════════════════════════════════════════════════════════════ */
 @media (orientation: landscape) and (max-height: 500px) {
-
+ 
     .content-area {
         padding-bottom: calc(12px + env(safe-area-inset-bottom));
     }
-
+ 
     /* HUD numbers: large in landscape since there's horizontal room */
     .hud-time { font-size: 52px; letter-spacing: -2px; }
     .hud-cell { padding: 10px 16px; }
     .hud-label { font-size: 10px; }
-
+ 
     /* Stack controls in two columns to save vertical space */
     #workout-section .control-row { margin-bottom: 8px; }
     .timer-btn-row { margin-bottom: 10px; }
     .timer-btn-row button { padding: 10px 8px; font-size: 14px; }
-
+ 
     .tab-content { padding: 10px 14px; }
     .tab-content h2 { margin: -10px -14px 12px; padding: 10px 14px 8px; }
-
+ 
     /* Drawer: cap height and scroll so all items are reachable in landscape */
     #menu-drawer {
         max-height: 80dvh;
@@ -1368,9 +1366,9 @@ body:has(#workout-section.active) #floating-menu-btn {
         font-size: 15px;
     }
     #menu-drawer-handle { margin-bottom: 10px; }
-
+ 
 }
-
+ 
 /* ── Phase 2: Plan tab — phase sections ─────────────────────────── */
 .phase-section {
     margin-bottom: 14px;
@@ -1378,7 +1376,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     border-radius: 12px;
     overflow: hidden;
 }
-
+ 
 .phase-header {
     display: flex;
     align-items: center;
@@ -1387,7 +1385,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     background: #f2f2f7;
     border-bottom: 1px solid #e5e5ea;
 }
-
+ 
 .phase-label {
     font-size: 12px;
     font-weight: 700;
@@ -1395,7 +1393,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     letter-spacing: 0.5px;
     color: #636366;
 }
-
+ 
 .phase-add-btn {
     font-size: 13px;
     font-weight: 700;
@@ -1409,11 +1407,11 @@ body:has(#workout-section.active) #floating-menu-btn {
     -webkit-tap-highlight-color: transparent;
 }
 .phase-add-btn:active { opacity: 0.7; }
-
+ 
 .phase-ex-list {
     padding: 8px 10px;
 }
-
+ 
 .phase-empty {
     font-size: 13px;
     color: #aeaeb2;
@@ -1422,7 +1420,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     padding: 6px 0;
     margin: 0;
 }
-
+ 
 /* ── Phase 2: Plan tab — compact exercise row ───────────────────── */
 .plan-ex-row {
     background: #fff;
@@ -1433,11 +1431,11 @@ body:has(#workout-section.active) #floating-menu-btn {
     transition: box-shadow 0.15s, opacity 0.15s;
 }
 .plan-ex-row:last-child { margin-bottom: 0; }
-
+ 
 /* Exercise reorder drag states */
 .plan-ex-row.ex-dragging  { opacity: 0.4; }
 .plan-ex-row.ex-drag-over { box-shadow: 0 0 0 2px #007aff; }
-
+ 
 .ex-drag-handle {
     font-size: 16px;
     color: #aeaeb2;
@@ -1449,14 +1447,14 @@ body:has(#workout-section.active) #floating-menu-btn {
     flex-shrink: 0;
 }
 .ex-drag-handle:active { cursor: grabbing; }
-
+ 
 .plan-ex-main {
     display: flex;
     align-items: center;
     gap: 6px;
     margin-bottom: 4px;
 }
-
+ 
 .plan-ex-name {
     flex: 1;
     font-size: 15px;
@@ -1467,23 +1465,23 @@ body:has(#workout-section.active) #floating-menu-btn {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-
+ 
 .plan-ex-edit-btn {
     color: #007aff;
     font-size: 14px;
 }
-
+ 
 .plan-ex-detail {
     font-size: 13px;
     color: #3a3a3c;
     margin-bottom: 2px;
 }
-
+ 
 .plan-ex-rest {
     font-size: 12px;
     color: #8e8e93;
 }
-
+ 
 /* ── Phase 2: Exercise type tags ────────────────────────────────── */
 .ex-tag {
     font-size: 10px;
@@ -1513,10 +1511,10 @@ body:has(#workout-section.active) #floating-menu-btn {
     background: rgba(10,132,255,0.18);
     color: #0a84ff;
 }
-
+ 
 /* ── Phase 2: Exercise form modal ───────────────────────────────── */
 /* The modal itself is already styled; this handles the form internals */
-
+ 
 .ex-form {
     display: flex;
     flex-direction: column;
@@ -1530,14 +1528,14 @@ body:has(#workout-section.active) #floating-menu-btn {
     -webkit-overflow-scrolling: touch;
     padding-right: 2px; /* scrollbar gap */
 }
-
+ 
 .ex-form-section {
     padding: 12px 0;
     border-bottom: 1px solid #2c2c2e;
     max-width: 100%;
 }
 .ex-form-section:last-child { border-bottom: none; }
-
+ 
 .ex-form-label {
     display: block;
     font-size: 12px;
@@ -1547,7 +1545,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     color: #8e8e93;
     margin-bottom: 8px;
 }
-
+ 
 .ex-form-hint {
     font-size: 11px;
     font-weight: 400;
@@ -1555,7 +1553,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     letter-spacing: 0;
     color: #636366;
 }
-
+ 
 .ex-form-row {
     display: flex;
     align-items: center;
@@ -1563,14 +1561,14 @@ body:has(#workout-section.active) #floating-menu-btn {
     gap: 6px 8px;
     max-width: 100%;
 }
-
+ 
 .ex-form-unit {
     font-size: 13px;
     color: #8e8e93;
     font-weight: 600;
     flex-shrink: 0;
 }
-
+ 
 .ex-form-select {
     width: 100%;
     padding: 11px 12px;
@@ -1588,13 +1586,13 @@ body:has(#workout-section.active) #floating-menu-btn {
 }
 .ex-form-select:focus { outline: none; border-color: #30d158; }
 .ex-form-select:disabled { opacity: 0.45; }
-
+ 
 /* Isotonic / isometric toggle */
 .ex-toggle-row {
     display: flex;
     gap: 10px;
 }
-
+ 
 .ex-toggle-opt {
     flex: 1;
     display: flex;
@@ -1616,7 +1614,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     height: 16px;
     flex-shrink: 0;
 }
-
+ 
 /* Exercise-type row (3 options) — allow wrapping to two rows on narrow
    screens so "Cardio/Watt" never gets clipped in portrait orientation. */
 .ex-toggle-row-wrap {
@@ -1626,7 +1624,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     flex: 1 1 30%;
     min-width: 90px;
 }
-
+ 
 /* BW preview inline */
 .ex-bw-preview {
     font-size: 13px;
@@ -1637,7 +1635,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     overflow: hidden;
     text-overflow: ellipsis;
 }
-
+ 
 /* Library search results */
 .ex-lib-results {
     margin-top: 6px;
@@ -1651,7 +1649,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     max-width: 100%;
     box-sizing: border-box;
 }
-
+ 
 .ex-lib-result-btn {
     display: flex;
     flex-direction: column;
@@ -1670,7 +1668,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     -webkit-tap-highlight-color: transparent;
 }
 .ex-lib-result-btn:active { background: #3a3a3c; }
-
+ 
 .ex-lib-name {
     font-size: 15px;
     font-weight: 600;
@@ -1678,14 +1676,14 @@ body:has(#workout-section.active) #floating-menu-btn {
     max-width: 100%;
     overflow-wrap: break-word;
 }
-
+ 
 .ex-lib-meta {
     font-size: 12px;
     color: #8e8e93;
     max-width: 100%;
     overflow-wrap: break-word;
 }
-
+ 
 /* ── Phase 2: Workout tab — phase badge ─────────────────────────── */
 .workout-phase-badge {
     display: inline-block;
@@ -1699,7 +1697,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     padding: 3px 8px;
     margin-bottom: 8px;
 }
-
+ 
 /* Landscape: make exercise form modal scrollable without clipping */
 @media (orientation: landscape) and (max-height: 500px) {
     .ex-form {
@@ -1716,9 +1714,9 @@ body:has(#workout-section.active) #floating-menu-btn {
         max-height: 110px;
     }
 }
-
+ 
 /* ── Phase 3: HUD additions ─────────────────────────────────────── */
-
+ 
 /* Phase label in HUD left cell */
 .hud-phase-label {
     font-size: 11px;
@@ -1728,7 +1726,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     color: #636366;
     min-height: 14px;
 }
-
+ 
 /* Running work total in HUD left cell */
 .hud-work-label {
     font-size: 11px;
@@ -1736,21 +1734,21 @@ body:has(#workout-section.active) #floating-menu-btn {
     color: #30d158;
     min-height: 14px;
 }
-
+ 
 /* Portrait: clock on top, meta (phase + work) stacked below */
 .hud-elapsed-row {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
 }
-
+ 
 /* Meta block: phase label + work total, always stacked vertically inside */
 .hud-elapsed-meta {
     display: flex;
     flex-direction: column;
     margin-top: 2px;
 }
-
+ 
 /* Right cell top row: pause/resume btn + phase label side by side */
 .hud-timer-top-row {
     display: flex;
@@ -1758,7 +1756,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     gap: 6px;
     margin-bottom: 4px;
 }
-
+ 
 /* Pause/Resume button — small, top of timer cell */
 .pause-resume-btn {
     background: #2c2c2e;
@@ -1776,14 +1774,14 @@ body:has(#workout-section.active) #floating-menu-btn {
     touch-action: manipulation;
 }
 .pause-resume-btn:active { opacity: 0.6; }
-
+ 
 /* Skip-rest button — orange tint to signal "advance" */
 .skip-rest-btn {
     background: rgba(255,159,10,0.18);
     border-color: rgba(255,159,10,0.4);
     color: #ff9f0a;
 }
-
+ 
 /* Timed-isotonic user input block */
 .timed-input-block {
     background: #f2f2f7;
@@ -1807,7 +1805,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     text-align: center;
     margin-top: 4px;
 }
-
+ 
 /* Timer low-time pulse for rest */
 @keyframes timerLowPulse {
     0%, 100% { opacity: 1; }
@@ -1816,28 +1814,28 @@ body:has(#workout-section.active) #floating-menu-btn {
 #timer.timer-rest.low {
     animation: timerLowPulse 0.8s ease-in-out infinite;
 }
-
+ 
 /* Landscape: move phase label + work total inline to the right of the elapsed clock */
 @media (orientation: landscape) and (max-height: 500px) {
     .hud-phase-label { font-size: 10px; }
     .hud-work-label  { font-size: 10px; }
     .hud-timer-top-row { gap: 4px; }
     .pause-resume-btn { font-size: 12px; padding: 2px 7px; }
-
+ 
     /* Row: clock on left, meta block (phase + work) on right, bottom-aligned */
     .hud-elapsed-row {
         flex-direction: row;
         align-items: flex-end;
         gap: 8px;
     }
-
+ 
     /* Meta stacks phase + work vertically, no extra top margin needed */
     .hud-elapsed-meta {
         margin-top: 0;
         margin-bottom: 2px; /* nudge up slightly off the baseline */
     }
 }
-
+ 
 /* ── Workout card: goal + set counter on one line ───────────────── */
 .goal-set-line {
     font-weight: 700;
@@ -1845,11 +1843,11 @@ body:has(#workout-section.active) #floating-menu-btn {
     color: #1c1c1e;
     margin: 0 0 10px;
 }
-
+ 
 .set-counter-num {
     color: #ff453a;
 }
-
+ 
 /* Remove old split-layout rules no longer needed */
 .goal-set-line .goal-text {
     font-weight: inherit;
@@ -1857,11 +1855,11 @@ body:has(#workout-section.active) #floating-menu-btn {
     color: inherit;
     margin: 0;
 }
-
+ 
 .set-counter {
     display: none;
 }
-
+ 
 /* ── Workout card: BW load + added weight — single inline line ───── */
 .weight-inline {
     font-size: 14px;
@@ -1869,7 +1867,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     margin: 0 0 14px;
     line-height: 2;
 }
-
+ 
 .weight-inline-input {
     font-size: 16px;
     padding: 4px 8px;
@@ -1879,7 +1877,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     text-align: center;
     vertical-align: middle;
 }
-
+ 
 /* ── Progress chart pagination arrows ────────────────────────────── */
 .prog-chart-nav-btn {
     position: absolute;
@@ -1907,7 +1905,7 @@ body:has(#workout-section.active) #floating-menu-btn {
 }
 .prog-chart-nav-left  { left: 8px; }
 .prog-chart-nav-right { right: 8px; }
-
+ 
 /* ── Exercise chart custom tooltip (clickable date) ──────────────── */
 .prog-chart-tooltip {
     position: absolute;
@@ -1954,7 +1952,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     border-radius: 50%;
     flex-shrink: 0;
 }
-
+ 
 /* ── Progress log card highlight (scrolled-to from chart tap) ────── */
 @keyframes progCardHighlight {
     0%, 100% { background: #fff; }
@@ -1963,7 +1961,7 @@ body:has(#workout-section.active) #floating-menu-btn {
 .prog-card-highlight {
     animation: progCardHighlight 2s ease;
 }
-
+ 
 /* ── Settings checkbox row (e.g. Show Trend Lines toggle) ────────── */
 .settings-checkbox-row {
     display: flex !important;
@@ -1977,7 +1975,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     flex: 0 0 auto;
     accent-color: #30d158;
 }
-
+ 
 /* ── Progress log edit modal — reuses .ex-modal-title / .ex-modal-footer /
    .ex-modal-cancel / .ex-modal-next for consistent chrome; only the
    overlay/container/body/list styling below is new. ────────────────── */
@@ -1989,7 +1987,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     z-index: 400;
 }
 #log-edit-modal-overlay.open { display: block; }
-
+ 
 #log-edit-modal {
     position: fixed;
     left: 50%;
@@ -2015,7 +2013,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     pointer-events: auto;
     transform: translate(-50%, -50%) scale(1);
 }
-
+ 
 .log-edit-modal-body {
     display: flex;
     flex-direction: column;
@@ -2026,7 +2024,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     -webkit-overflow-scrolling: touch;
     padding-right: 2px;
 }
-
+ 
 .log-edit-ex-block {
     background: #2c2c2e;
     border: 1px solid #3a3a3c;
@@ -2054,7 +2052,7 @@ body:has(#workout-section.active) #floating-menu-btn {
 }
 .log-edit-ex-name:focus { outline: none; border-color: #30d158; }
 .log-edit-ex-phase { font-size: 16px; flex-shrink: 0; }
-
+ 
 .log-edit-sets-count {
     display: flex;
     align-items: center;
@@ -2079,7 +2077,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     padding: 6px 8px;
     text-align: center;
 }
-
+ 
 .log-edit-set-list {
     display: flex;
     flex-direction: column;
@@ -2119,7 +2117,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     text-align: center;
 }
 .log-edit-set-row input:focus { outline: none; border-color: #30d158; }
-
+ 
 /* ── Progress log card header (title + Edit button) ─────────────── */
 .prog-log-header-row {
     display: flex;
@@ -2128,7 +2126,7 @@ body:has(#workout-section.active) #floating-menu-btn {
     gap: 8px;
 }
 .prog-log-header-row h4 { flex: 1; min-width: 0; }
-
+ 
 /* ── Edit-current-exercise button (Workout tab) ──────────────────── */
 .edit-current-ex-btn {
     display: block;
@@ -2145,3 +2143,4 @@ body:has(#workout-section.active) #floating-menu-btn {
     -webkit-tap-highlight-color: transparent;
 }
 .edit-current-ex-btn:active { opacity: 0.7; }
+ 
