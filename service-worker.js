@@ -1,7 +1,7 @@
 // service-worker.js
 // Version 11.1 — Cache bump to pick up styles.css for weekly plan always being a single column
 
-const CACHE_NAME = 'fitness-app-v11.0';
+const CACHE_NAME = 'fitness-app-v11.1';
 
 const BASE = self.location.pathname.replace(/\/service-worker\.js$/, '');
 const urlsToCache = [
