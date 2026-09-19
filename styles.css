@@ -1,5 +1,8 @@
 /* ── styles.css ── iPhone-optimised PWA ──────────────────────────── */
-/* Version 11.1.1; SOC: Weekly-plan always uses a single column, removing the auto-fit behavior */
+/* Version 11.2; SOC: Added .restart-set-btn (orange variant of the
+   edit-current-ex-btn, used by the new "Restart This Set" button) and
+   .review-fields (editable weight/reps/watts/time inputs shown by the
+   Back-button review screen). */
 
 /* ── Reset & base ──────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
@@ -2138,3 +2141,38 @@ body:has(#workout-section.active) #floating-menu-btn {
     -webkit-tap-highlight-color: transparent;
 }
 .edit-current-ex-btn:active { opacity: 0.7; }
+
+/* ── Restart-this-set button (orange variant of edit-current-ex-btn) ──── */
+.restart-set-btn {
+    background: #ff9f0a;
+    color: #fff;
+    margin-bottom: 8px;
+}
+
+/* ── Review-mode editable fields (Back button) ───────────────────────── */
+.review-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background: #f2f2f7;
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin: 0 0 14px;
+}
+.review-fields label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #3a3a3c;
+}
+.review-fields input[type="number"] {
+    width: 110px;
+    font-size: 16px;
+    padding: 8px 10px;
+    border: 1px solid #d1d1d6;
+    border-radius: 10px;
+    text-align: center;
+}

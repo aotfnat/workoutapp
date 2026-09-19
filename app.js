@@ -1,16 +1,45 @@
 // app.js
-//Version 11.0
-//SOC: Progress tab log-edit modal — exercises with Active Period measured
-//     in Reps or Meters (non-Cardio/Watt) previously had no way to edit
-//     the logged Reps/Distance value, since that value isn't a per-set
-//     input; it's a single Target shared across every set (see
-//     calcExerciseTotals). Added an editable Reps/Distance(m) field on
-//     the same line as the Sets field in renderLogEditExercise, wired to
-//     a new logEditExerciseTargetChange handler that updates ex.target
-//     (and clears any legacy ex.distanceM for meters exercises so it
-//     doesn't silently override the edit — see the Plan-tab Distance-field
-//     migration from the prior change).
+//Version 11.2
+//SOC: (1) "Last time" block now shows laterality (Bilateral/Unilateral) or
+//     "⚡ Watts-based" for the prior set, via getPreviousAccomplishment.
+//     (2) Back (‹) during a workout no longer just rewinds the rest timer —
+//     it enters a new "review" mode showing the previous set's recorded
+//     weight/reps-distance-watts/time in EDITABLE fields (reviewFieldChange),
+//     with ‹/Resume▶ to step further back or return to the live set;
+//     runningWorkTotal is recomputed from the (possibly edited) data on
+//     exit (recomputeRunningWorkTotal). (3) Added a "⟲ Restart This Set"
+//     button (restartCurrentSet) that clears the current set's recorded
+//     data and restarts its rest→active sequence without touching any
+//     other set. (4) NEW: Superset/Circuit support. A Plan-tab exercise can
+//     now be a `type:'superset'` container holding a `members[]` array of
+//     up to MAX_SUPERSET_TOTAL leaf exercises that all share the container's
+//     `sets` (rounds)/setRestSec (rest between rounds)/exerciseRestSec (rest
+//     before round 1); each additional member has its own transitionRestSec
+//     (rest before that exercise within a round). Additional circuit
+//     members are limited to Isotonic/Isometric (not Cardio/Watt) to keep
+//     the workout-tab cycling logic tractable — the PRIMARY exercise can
+//     still be any type including Cardio/Watt. Workout-tab execution now
+//     resolves "the exercise actually being performed right now" via
+//     getActiveExercise()/currentMemberIndex, cycling through all circuit
+//     members before advancing the round (startNextStepInWorkout). Editing
+//     an individual circuit exercise mid-workout isn't supported (edit the
+//     circuit from the Plan tab instead) — restart/review still work.
+//     Plan CSV export/import gained `supersetGroup`/`transitionRestSec`
+//     columns (collapseSupersets rebuilds containers on import); Progress
+//     CSV gained a `circuit_name` column. See SKILL notes inline for the
+//     practical circuit-size limit and its rationale.
 
+
+// ── Superset / Circuit limits ──────────────────────────────────────
+// Practical cap on how many exercises a single superset/circuit can hold
+// (the primary exercise plus this many additional ones). Each additional
+// exercise adds its own rest timer, weights/setTimes/userInputs arrays
+// (each sized to the round count), and a CSV row on export/import — an
+// unbounded chain risks very long per-round rest sequences, sluggish
+// Plan-tab rendering, and (on CSV round-trips) a single malformed/missing
+// supersetGroup id silently merging unrelated exercises. 6 total keeps a
+// circuit reasonably fast to build and to actually perform.
+const MAX_SUPERSET_TOTAL = 6;
 
 // ── Schema version guard ─────────────────────────────────────────
 // Bump SCHEMA_VERSION whenever the data model changes in a breaking way.
@@ -264,7 +293,22 @@ function workUnitLabel() {
 let currentWorkout       = [];   // deep copy of exercises for this session
 let currentExerciseIndex = 0;
 let currentSet           = 1;
+// Which member of a superset/circuit container is currently being
+// performed (0 for a plain, non-superset exercise). See getActiveExercise().
+let currentMemberIndex   = 0;
 let lapsedTimerInterval  = null;
+
+// ── Review mode (Back button) ─────────────────────────────────────
+// Pressing Back (‹) during a workout no longer rewinds the live timer —
+// it shows the previously-recorded set (weight/reps/watts/time), editable,
+// via a dedicated "reviewing" screen. reviewExIdx/reviewSetIdx/reviewMemberIndex
+// point at whichever exercise/round/circuit-member is being reviewed;
+// see enterReviewMode/reviewStepBack/reviewStepForward/exitReviewMode.
+let reviewMode        = false;
+let reviewExIdx        = null;
+let reviewSetIdx       = null;
+let reviewMemberIdx    = null;
+let _reviewPausedState = null;
 let lapsedTime           = 0;
 let workoutStartTime     = null;
 let workoutInProgress    = false;
@@ -298,6 +342,7 @@ function saveInProgressWorkout() {
         currentWorkout:       currentWorkout,
         currentExerciseIndex: currentExerciseIndex,
         currentSet:           currentSet,
+        currentMemberIndex:   currentMemberIndex,
         lapsedTime:           lapsedTime,
         workoutStartTime:     workoutStartTime,
         runningWorkTotal:     runningWorkTotal,
@@ -324,6 +369,7 @@ function restoreInProgressWorkout() {
         currentWorkout       = state.currentWorkout || [];
         currentExerciseIndex = Math.min(state.currentExerciseIndex, currentWorkout.length - 1);
         currentSet           = state.currentSet || 1;
+        currentMemberIndex   = state.currentMemberIndex || 0;
         lapsedTime           = state.lapsedTime || 0;
         workoutStartTime     = state.workoutStartTime;
         runningWorkTotal     = state.runningWorkTotal || 0;
@@ -338,6 +384,7 @@ function restoreInProgressWorkout() {
     currentWorkout       = state.currentWorkout || [];
     currentExerciseIndex = Math.min(state.currentExerciseIndex, currentWorkout.length - 1);
     currentSet           = state.currentSet || 1;
+    currentMemberIndex   = state.currentMemberIndex || 0;
     lapsedTime           = state.lapsedTime || 0;
     workoutStartTime     = state.workoutStartTime;
     runningWorkTotal     = state.runningWorkTotal || 0;
@@ -683,6 +730,7 @@ function renderPhaseSection(workout, wIdx, phase, label) {
 
 // Render a compact exercise summary row in the plan card
 function renderExerciseRow(ex, wIdx, eIdx) {
+    if (ex.type === 'superset') return renderSupersetRow(ex, wIdx, eIdx);
     const isCardioWatts = ex.type === 'cardio' && ex.inputMode === 'watts';
 
     const typeTag  = ex.type === 'isometric'
@@ -749,6 +797,29 @@ function renderExerciseRow(ex, wIdx, eIdx) {
                 ${lateralityTag}
             </div>
             <div class="plan-ex-rest">${restText}</div>
+        </div>
+    `;
+}
+
+// Compact summary row for a superset/circuit container in the Plan tab.
+function renderSupersetRow(ex, wIdx, eIdx) {
+    const memberLines = ex.members.map(m => {
+        const tag = m.type === 'isometric' ? 'ISO' : 'TON';
+        const targetTxt = m.type === 'isometric' ? `${m.target}s` : (m.unit === 'meters' ? `${m.target}m` : `${m.target} reps`);
+        return `${escHtml(m.name)} (${targetTxt}, ${tag})`;
+    }).join(' → ');
+
+    return `
+        <div class="plan-ex-row" id="plan-ex-${wIdx}-${eIdx}" draggable="true"
+            data-widx="${wIdx}" data-eidx="${eIdx}" data-phase="${ex.phase || 'work'}">
+            <div class="plan-ex-main">
+                <span class="ex-drag-handle" title="Drag to reorder">⠿</span>
+                <span class="plan-ex-name">🔄 ${escHtml(ex.name)}</span>
+                <button class="icon-btn plan-ex-edit-btn" onclick="editExercise(${wIdx}, ${eIdx})" title="Edit">✏️</button>
+                <button class="icon-btn danger" onclick="removeExercise(${wIdx}, ${eIdx})" title="Remove">✕</button>
+            </div>
+            <div class="plan-ex-detail">${memberLines}</div>
+            <div class="plan-ex-rest">${ex.sets} rounds · Ex rest: ${ex.exerciseRestSec ?? 90}s · Round rest: ${ex.setRestSec ?? 60}s</div>
         </div>
     `;
 }
@@ -892,7 +963,7 @@ function exModalSetBody(html) {
 }
 
 function addExercise(wIdx, phase) {
-    _exModal = { wIdx, phase: phase || 'work', editIdx: null };
+    _exModal = { wIdx, phase: phase || 'work', editIdx: null, supersetMembers: [] };
     const defaults = {
         name: '', type: 'isotonic', phase: phase || 'work',
         bodyWeightPct: 0, heightPct: null, distanceM: null,
@@ -904,8 +975,22 @@ function addExercise(wIdx, phase) {
 }
 
 function editExercise(wIdx, eIdx) {
-    _exModal = { wIdx, phase: null, editIdx: eIdx };
     const ex = workoutPlan[wIdx].exercises[eIdx];
+    if (ex.type === 'superset') {
+        // Re-open the form seeded from the primary (first) circuit member,
+        // plus the container's sets/rest fields; existingMembers[1..] get
+        // rendered back in as circuit-exercise sub-forms once the modal opens.
+        _exModal = { wIdx, phase: null, editIdx: eIdx, existingMembers: ex.members, supersetMembers: [] };
+        const primary = {
+            ...ex.members[0],
+            phase: ex.phase, sets: ex.sets,
+            setRestSec: ex.setRestSec, exerciseRestSec: ex.exerciseRestSec,
+            autoSequence: false
+        };
+        openExerciseForm('Edit Circuit', primary);
+        return;
+    }
+    _exModal = { wIdx, phase: null, editIdx: eIdx, supersetMembers: [] };
     openExerciseForm('Edit Exercise', ex);
 }
 
@@ -1199,6 +1284,16 @@ function openExerciseForm(title, ex) {
                     </label>
                 </div>
             </div>
+            ${isWorkoutEditMode ? '' : `
+            <div class="ex-form-section">
+                <label class="ex-toggle-opt" style="justify-content:flex-start;gap:8px;">
+                    <input type="checkbox" id="ef-superset-toggle" onchange="exFormSupersetToggle()">
+                    🔄 Make this a Superset / Circuit
+                </label>
+                <p class="ex-form-hint">Adds more exercises to alternate through each round. All exercises in the circuit share this exercise's Sets/Rest fields above as the round count and inter-round rest. Up to ${MAX_SUPERSET_TOTAL} exercises total; additional circuit exercises are Isotonic/Isometric only.</p>
+            </div>
+            <div id="ef-superset-members"></div>
+            `}
         </div>
     `);
 
@@ -1209,6 +1304,24 @@ function openExerciseForm(title, ex) {
 
     exModalOpen();
     exFormUpdateTargetLabel();
+
+    // Re-populate circuit member sub-forms when editing an existing superset.
+    if (_exModal.existingMembers && _exModal.existingMembers.length > 1) {
+        const toggleEl = document.getElementById('ef-superset-toggle');
+        if (toggleEl) toggleEl.checked = true;
+        _exModal.supersetMembers = [];
+        _exModal.existingMembers.slice(1).forEach((m) => {
+            const i = _exModal.supersetMembers.length;
+            _exModal.supersetMembers.push(true);
+            const container = document.getElementById('ef-superset-members');
+            if (!container) return;
+            const div = document.createElement('div');
+            div.innerHTML = renderSupersetMemberBlock(i, m);
+            container.appendChild(div.firstElementChild);
+        });
+        renderSupersetAddButton();
+    }
+
     setTimeout(() => document.getElementById('ef-name')?.focus(), 120);
 }
 
@@ -1624,6 +1737,47 @@ function exFormSave() {
     };
     if (typeVal === 'cardio') exObj.inputMode = inputModeVal;
 
+    // Superset/Circuit: if the toggle is on and at least one additional
+    // circuit exercise has been added, save a `type:'superset'` container
+    // instead of a plain exercise. The container reuses this primary
+    // form's phase/sets/setRestSec/exerciseRestSec as the whole circuit's
+    // round count and rest timings; members[0] is this primary exercise's
+    // own type/bodyWeightPct/etc, members[1..] come from the mini sub-forms.
+    const supersetToggled = document.getElementById('ef-superset-toggle')?.checked;
+    const memberCount = (_exModal.supersetMembers || []).length;
+    if (supersetToggled && memberCount > 0) {
+        const membersData = [
+            { name, type: typeVal, bodyWeightPct, heightPct, distanceM, unit, target, timedInput, laterality, transitionRestSec: 0, weights: [] }
+        ];
+        if (typeVal === 'cardio') membersData[0].inputMode = inputModeVal;
+        for (let i = 0; i < memberCount; i++) {
+            const m = readSupersetMemberForm(i);
+            if (m) membersData.push(m);
+        }
+        if (membersData.length < 2) {
+            alert('Add at least one circuit exercise, or turn off the Superset/Circuit toggle.');
+            return;
+        }
+        const containerName = membersData.map(m => m.name).filter(Boolean).join(' + ') || name;
+        const containerObj = {
+            name: containerName,
+            type: 'superset',
+            phase: phaseVal,
+            sets, setRestSec, exerciseRestSec,
+            members: membersData
+        };
+        const { wIdx: cwIdx, editIdx: ceditIdx } = _exModal;
+        if (ceditIdx !== null && ceditIdx !== undefined) {
+            workoutPlan[cwIdx].exercises[ceditIdx] = containerObj;
+        } else {
+            workoutPlan[cwIdx].exercises.push(containerObj);
+        }
+        savePlan();
+        exModalClose();
+        loadPlan();
+        return;
+    }
+
     // Editing the single currently-running exercise mid-workout (see
     // editCurrentExercise) applies straight to currentWorkout instead of
     // the saved plan, and resets the exercise back to its first set.
@@ -1646,6 +1800,178 @@ function exFormSave() {
     savePlan();
     exModalClose();
     loadPlan();
+}
+
+// ── Superset / Circuit sub-forms ───────────────────────────────────
+// Toggling "Make this a Superset / Circuit" on adds the first additional
+// circuit exercise; the primary exercise's own Sets/Rest fields (in the
+// main form above) become the whole circuit's round count and rest
+// timings. Additional circuit exercises are intentionally limited to
+// Isotonic/Isometric (not Cardio/Watt) — keeping watts-logging out of the
+// member cycling logic below is what keeps startNextStepInWorkout()
+// tractable; the PRIMARY exercise can still be any type including
+// Cardio/Watt.
+
+function exFormSupersetToggle() {
+    const checked = document.getElementById('ef-superset-toggle')?.checked;
+    const container = document.getElementById('ef-superset-members');
+    if (checked) {
+        _exModal.supersetMembers = _exModal.supersetMembers || [];
+        if (_exModal.supersetMembers.length === 0) exFormAddSupersetMember();
+    } else {
+        _exModal.supersetMembers = [];
+        if (container) container.innerHTML = '';
+    }
+}
+
+function exFormAddSupersetMember() {
+    _exModal.supersetMembers = _exModal.supersetMembers || [];
+    if (_exModal.supersetMembers.length + 1 >= MAX_SUPERSET_TOTAL) {
+        alert(`A circuit can have up to ${MAX_SUPERSET_TOTAL} exercises total.`);
+        return;
+    }
+    const idx = _exModal.supersetMembers.length;
+    _exModal.supersetMembers.push(true);
+    const container = document.getElementById('ef-superset-members');
+    if (!container) return;
+    const div = document.createElement('div');
+    div.innerHTML = renderSupersetMemberBlock(idx, null);
+    container.appendChild(div.firstElementChild);
+    renderSupersetAddButton();
+    setTimeout(() => document.getElementById(`sm-name-${idx}`)?.focus(), 80);
+}
+
+// Only the LAST circuit exercise can be removed directly — removing from
+// the middle would require re-indexing every subsequent sub-form's element
+// ids, which isn't worth the complexity for what's meant to be a quick
+// "oops, undo that" action.
+function exFormRemoveSupersetMember(i) {
+    const members = _exModal.supersetMembers || [];
+    if (i !== members.length - 1) {
+        alert('Remove circuit exercises starting from the last one added.');
+        return;
+    }
+    members.pop();
+    document.getElementById(`sm-block-${i}`)?.remove();
+    if (members.length === 0) {
+        const toggleEl = document.getElementById('ef-superset-toggle');
+        if (toggleEl) toggleEl.checked = false;
+    }
+    renderSupersetAddButton();
+}
+
+function renderSupersetAddButton() {
+    const container = document.getElementById('ef-superset-members');
+    if (!container) return;
+    const existingBtn = document.getElementById('ef-superset-add-btn');
+    if (existingBtn) existingBtn.remove();
+    if ((_exModal.supersetMembers || []).length + 1 >= MAX_SUPERSET_TOTAL) return;
+    const b = document.createElement('button');
+    b.id = 'ef-superset-add-btn';
+    b.type = 'button';
+    b.textContent = '+ Add Circuit Exercise';
+    b.style.cssText = 'width:100%;margin-top:8px;background:#5e5ce6;';
+    b.onclick = exFormAddSupersetMember;
+    container.appendChild(b);
+}
+
+// Compact mini-form for one additional circuit exercise. `m` pre-fills an
+// existing member's data when editing a saved circuit; null for a brand
+// new one.
+function renderSupersetMemberBlock(i, m) {
+    m = m || { name: '', type: 'isotonic', bodyWeightPct: 0, heightPct: null, unit: 'reps', target: 10, laterality: 'bilateral', transitionRestSec: 15 };
+    const isIso = m.type === 'isometric';
+    return `
+    <div class="ex-form-section" id="sm-block-${i}" style="border:1px dashed #3a3a3c;border-radius:10px;padding:10px;margin-top:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <label class="ex-form-label" style="margin:0;">🔄 Circuit Exercise #${i + 2}</label>
+            <button type="button" class="icon-btn danger" onclick="exFormRemoveSupersetMember(${i})">✕ Remove</button>
+        </div>
+        <input id="sm-name-${i}" class="ex-text-input" type="text" placeholder="Exercise name" value="${escHtml(m.name)}" style="margin-bottom:8px;">
+        <div class="ex-form-row" style="margin-bottom:8px;">
+            <select id="sm-type-${i}" class="ex-form-select" onchange="exFormMemberTypeChanged(${i})">
+                <option value="isotonic" ${!isIso ? 'selected' : ''}>Isotonic</option>
+                <option value="isometric" ${isIso ? 'selected' : ''}>Isometric</option>
+            </select>
+        </div>
+        <div class="ex-form-row" style="gap:8px;margin-bottom:8px;">
+            <div style="flex:1;">
+                <label class="ex-form-label" style="font-size:11px;">BW %</label>
+                <input id="sm-bwpct-${i}" class="ex-num-input" type="number" min="0" max="100" value="${Math.round((m.bodyWeightPct || 0) * 100)}" style="width:100%;">
+            </div>
+            <div style="flex:1;" id="sm-height-wrap-${i}" ${isIso ? 'style="display:none"' : ''}>
+                <label class="ex-form-label" style="font-size:11px;">Height %</label>
+                <input id="sm-hpct-${i}" class="ex-num-input" type="number" min="0" max="100" value="${m.heightPct != null ? Math.round(m.heightPct * 100) : ''}" style="width:100%;">
+            </div>
+        </div>
+        <div class="ex-form-row" style="gap:8px;margin-bottom:8px;">
+            <div style="flex:1;" id="sm-unit-wrap-${i}">
+                <label class="ex-form-label" style="font-size:11px;">Unit</label>
+                <select id="sm-unit-${i}" class="ex-form-select">
+                    ${isIso
+                        ? `<option value="seconds" selected>Seconds</option>`
+                        : `<option value="reps" ${m.unit === 'reps' ? 'selected' : ''}>Reps</option>
+                           <option value="seconds" ${m.unit === 'seconds' ? 'selected' : ''}>Seconds</option>
+                           <option value="meters" ${m.unit === 'meters' ? 'selected' : ''}>Meters</option>`}
+                </select>
+            </div>
+            <div style="flex:1;">
+                <label class="ex-form-label" style="font-size:11px;">Target</label>
+                <input id="sm-target-${i}" class="ex-num-input" type="number" min="1" value="${m.target ?? 10}" style="width:100%;">
+            </div>
+        </div>
+        <div class="ex-form-row" style="gap:8px;">
+            <div style="flex:1;">
+                <label class="ex-form-label" style="font-size:11px;">Laterality</label>
+                <select id="sm-laterality-${i}" class="ex-form-select">
+                    <option value="bilateral" ${m.laterality !== 'unilateral' ? 'selected' : ''}>Bilateral</option>
+                    <option value="unilateral" ${m.laterality === 'unilateral' ? 'selected' : ''}>Unilateral</option>
+                </select>
+            </div>
+            <div style="flex:1;">
+                <label class="ex-form-label" style="font-size:11px;">Rest before (s)</label>
+                <input id="sm-rest-${i}" class="ex-num-input" type="number" min="0" step="5" value="${m.transitionRestSec ?? 15}" style="width:100%;">
+            </div>
+        </div>
+    </div>`;
+}
+
+function exFormMemberTypeChanged(i) {
+    const type = document.getElementById(`sm-type-${i}`)?.value || 'isotonic';
+    const isIso = type === 'isometric';
+    const heightWrap = document.getElementById(`sm-height-wrap-${i}`);
+    if (heightWrap) heightWrap.style.display = isIso ? 'none' : '';
+    const unitEl = document.getElementById(`sm-unit-${i}`);
+    if (unitEl) {
+        unitEl.innerHTML = isIso
+            ? `<option value="seconds" selected>Seconds</option>`
+            : `<option value="reps">Reps</option><option value="seconds">Seconds</option><option value="meters">Meters</option>`;
+    }
+}
+
+// Reads one circuit-exercise mini-form back into a member data object, or
+// null if it's missing/empty (e.g. blank name).
+function readSupersetMemberForm(i) {
+    const nameEl = document.getElementById(`sm-name-${i}`);
+    if (!nameEl) return null;
+    const name = nameEl.value.trim();
+    if (!name) return null;
+    const type = document.getElementById(`sm-type-${i}`)?.value || 'isotonic';
+    const isIso = type === 'isometric';
+    const bwPctRaw = parseFloat(document.getElementById(`sm-bwpct-${i}`)?.value) || 0;
+    const bodyWeightPct = Math.min(Math.max(bwPctRaw / 100, 0), 1);
+    const hRaw = document.getElementById(`sm-hpct-${i}`)?.value;
+    const heightPct = (!isIso && hRaw !== undefined && hRaw !== '') ? (parseFloat(hRaw) / 100 || null) : null;
+    const unit = isIso ? 'seconds' : (document.getElementById(`sm-unit-${i}`)?.value || 'reps');
+    const target = parseInt(document.getElementById(`sm-target-${i}`)?.value) || 10;
+    const laterality = document.getElementById(`sm-laterality-${i}`)?.value || 'bilateral';
+    const transitionRestSec = parseInt(document.getElementById(`sm-rest-${i}`)?.value);
+    return {
+        name, type, bodyWeightPct, heightPct, distanceM: null, unit, target,
+        timedInput: 'reps', laterality,
+        transitionRestSec: isNaN(transitionRestSec) ? 15 : transitionRestSec,
+        weights: []
+    };
 }
 
 function updateExercise(wIdx, eIdx, field, value) {
@@ -1940,7 +2266,13 @@ function getPreviousAccomplishment(exName, setIndex) {
             weightUnit: wu,
             accomplished,
             accomplishedLabel,
-            setTimeSec
+            setTimeSec,
+            // So the "Last time" block can show what kind of load was
+            // actually used — laterality (Bilateral/Unilateral) for normal
+            // exercises, or "Watts-based" for Cardio/Watt exercises (which
+            // have no laterality/BW model at all).
+            isCardioWatts: found.type === 'cardio' && found.inputMode === 'watts',
+            laterality: found.laterality || 'bilateral'
         };
     }
     return null;
@@ -1961,12 +2293,29 @@ function loadWorkoutTab() {
         (phaseOrder[a.phase || 'work'] ?? 1) - (phaseOrder[b.phase || 'work'] ?? 1)
     );
     currentWorkout.forEach(ex => {
-        ex.weights    = new Array(ex.sets).fill(0);
-        ex.setTimes   = new Array(ex.sets).fill(0);  // seconds per active period
-        ex.userInputs = new Array(ex.sets).fill(0);  // reps/dist logged for timed-isotonic
+        if (ex.type === 'superset') {
+            // Each member performs one "set" per round, so its tracking
+            // arrays are sized to the CONTAINER's round count (ex.sets),
+            // not any per-member value (members don't carry their own
+            // sets/phase — copy the container's onto each so calcExerciseTotals/
+            // calcSetWork, which read ex.sets and ex.phase, work unchanged
+            // whether they're handed a plain exercise or a circuit member).
+            ex.members.forEach(m => {
+                m.sets        = ex.sets;
+                m.phase       = ex.phase;
+                m.weights     = new Array(ex.sets).fill(0);
+                m.setTimes    = new Array(ex.sets).fill(0);
+                m.userInputs  = new Array(ex.sets).fill(0);
+            });
+        } else {
+            ex.weights    = new Array(ex.sets).fill(0);
+            ex.setTimes   = new Array(ex.sets).fill(0);  // seconds per active period
+            ex.userInputs = new Array(ex.sets).fill(0);  // reps/dist logged for timed-isotonic
+        }
     });
     currentExerciseIndex = 0;
     currentSet           = 1;
+    currentMemberIndex   = 0;
     lapsedTime           = 0;
     workoutStartTime     = null;
     workoutInProgress    = false;
@@ -2265,13 +2614,26 @@ function tickRestTimer() {
 // ── Start rest before first set of this exercise, then active ─────
 function startExerciseRestThenActive() {
     if (currentExerciseIndex >= currentWorkout.length) return;
-    const ex = currentWorkout[currentExerciseIndex];
-    const restSec = ex.exerciseRestSec ?? 90;
+    currentMemberIndex = 0; // always begin a circuit at its first member
+    const container = currentWorkout[currentExerciseIndex];
+    const restSec = container.exerciseRestSec ?? 90;
     if (restSec > 0) {
         runRestTimer(restSec);
     } else {
         startActiveTimer();
     }
+}
+
+// Resolves "the exercise actually being performed right now": the current
+// member of a superset/circuit container, or the exercise itself if it's
+// not a container. Every timer/render/logging function that needs to read
+// or write per-set data (type, unit, target, weights[], setTimes[],
+// userInputs[]) should go through this rather than indexing
+// currentWorkout[currentExerciseIndex] directly.
+function getActiveExercise() {
+    const container = currentWorkout[currentExerciseIndex];
+    if (!container) return null;
+    return container.type === 'superset' ? container.members[currentMemberIndex] : container;
 }
 
 // ── Start rest between sets, then active ──────────────────────────
@@ -2289,7 +2651,8 @@ function startSetRestThenActive() {
 // ── Start the active period based on exercise type ─────────────────
 function startActiveTimer() {
     if (currentExerciseIndex >= currentWorkout.length) return;
-    const ex = currentWorkout[currentExerciseIndex];
+    const ex = getActiveExercise();
+    if (!ex) return;
     setStartTime = Date.now();
 
     if (ex.type === 'isometric') {
@@ -2390,7 +2753,7 @@ function resyncWorkoutTimer() {
 
 // Called when a countdown finishes (isometric or timed-isotonic)
 function onCountdownComplete() {
-    const ex = currentWorkout[currentExerciseIndex];
+    const ex = getActiveExercise();
     const setIdx = currentSet - 1;
 
     // Preserve any weight the user prefilled during rest before re-rendering
@@ -2437,7 +2800,7 @@ function nextSet() {
     if (now - lastNextSetTime < NEXT_SET_DEBOUNCE_MS) return;
     lastNextSetTime = now;
 
-    const ex = currentWorkout[currentExerciseIndex];
+    const ex = getActiveExercise();
     const setIdx = currentSet - 1;
     const isCardioWatts = ex.type === 'cardio' && ex.inputMode === 'watts';
 
@@ -2505,33 +2868,67 @@ function nextSet() {
     timerInterval = null;
     timerMode     = 'idle';   // clear waiting-input before re-rendering so banners don't persist
 
-    // Advance to next set or exercise
-    if (currentSet < ex.sets) {
+    startNextStepInWorkout();
+}
+
+// Advances the workout by exactly one "step": the next member of a
+// circuit's current round, the next round of a circuit/plain exercise, or
+// the next exercise entirely once a circuit/plain exercise's rounds are
+// all done. Kept separate from nextSet() so restartCurrentSet() and
+// nextSet() share the same advance logic.
+function startNextStepInWorkout() {
+    const container = currentWorkout[currentExerciseIndex];
+
+    if (container.type === 'superset') {
+        if (currentMemberIndex < container.members.length - 1) {
+            // Same round, move to the next circuit exercise
+            currentMemberIndex++;
+            saveInProgressWorkout();
+            renderExercise();
+            const restSec = container.members[currentMemberIndex].transitionRestSec ?? 15;
+            if (restSec > 0) runRestTimer(restSec); else startActiveTimer();
+            return;
+        }
+        if (currentSet < container.sets) {
+            // Last exercise of the round done — start the next round from member 0
+            currentSet++;
+            currentMemberIndex = 0;
+            saveInProgressWorkout();
+            renderExercise();
+            const restSec = container.setRestSec ?? 60;
+            if (restSec > 0) runRestTimer(restSec); else startActiveTimer();
+            return;
+        }
+        // Circuit fully complete — fall through to advancing the exercise
+    } else if (currentSet < container.sets) {
         currentSet++;
         saveInProgressWorkout();
         renderExercise();
         startSetRestThenActive();
-    } else {
-        // End of this exercise — move to next
-        currentExerciseIndex++;
-        currentSet = 1;
-        if (currentExerciseIndex >= currentWorkout.length) {
-            // Workout complete — trigger completion
-            stopExerciseTimer();
-            renderExercise();
-            updateHudPhaseLabel();
-            return;
-        }
-        saveInProgressWorkout();
+        return;
+    }
+
+    // End of this exercise/circuit — move to the next one
+    currentExerciseIndex++;
+    currentSet = 1;
+    currentMemberIndex = 0;
+    if (currentExerciseIndex >= currentWorkout.length) {
+        // Workout complete — trigger completion
+        stopExerciseTimer();
         renderExercise();
         updateHudPhaseLabel();
-        startExerciseRestThenActive();
+        return;
     }
+    saveInProgressWorkout();
+    renderExercise();
+    updateHudPhaseLabel();
+    startExerciseRestThenActive();
 }
 
 function prevSet() {
     ensureAudioUnlocked();
-    if (currentExerciseIndex === 0 && currentSet === 1) {
+    if (reviewMode) { reviewStepBack(); return; }
+    if (currentExerciseIndex === 0 && currentSet === 1 && currentMemberIndex === 0) {
         // Cancel workout
         lapsedTime        = 0;
         workoutStartTime  = null;
@@ -2547,36 +2944,194 @@ function prevSet() {
         updateHudPhaseLabel();
         return;
     }
-    clearInterval(timerInterval);
-    timerInterval = null;
-    setStartTime  = null;
+    enterReviewMode();
+}
 
-    if (currentSet > 1) {
-        currentSet--;
-        // Between sets of the same exercise — rest duration is setRestSec
-        const restSec = currentWorkout[currentExerciseIndex].setRestSec ?? 60;
-        timerRemaining      = restSec;
-        currentRestDuration = restSec;
+// ── Restart current set ───────────────────────────────────────────
+// Clears whatever's recorded for the set currently on screen (weight,
+// reps/distance/watts, time) and restarts that set's rest→active sequence
+// from scratch, without touching any other set/exercise.
+function restartCurrentSet() {
+    if (!workoutInProgress || reviewMode) return;
+    if (!confirm('Restart this set? Any weight/reps/time entered for it will be cleared.')) return;
+    const ex = getActiveExercise();
+    if (!ex) return;
+    const setIdx = currentSet - 1;
+    ex.weights[setIdx]    = 0;
+    ex.setTimes[setIdx]   = 0;
+    ex.userInputs[setIdx] = 0;
+    stopExerciseTimer();
+    setStartTime = null;
+    renderExercise();
+
+    const container = currentWorkout[currentExerciseIndex];
+    const isFirstOfContainer = currentSet === 1 && (container.type !== 'superset' || currentMemberIndex === 0);
+    if (isFirstOfContainer) {
+        startExerciseRestThenActive();
+    } else if (container.type === 'superset' && currentMemberIndex > 0) {
+        const restSec = container.members[currentMemberIndex].transitionRestSec ?? 15;
+        if (restSec > 0) runRestTimer(restSec); else startActiveTimer();
     } else {
-        currentExerciseIndex--;
-        currentSet = currentWorkout[currentExerciseIndex].sets;
-        // Returning to a mid-exercise set — use setRestSec (exerciseRestSec only precedes set 1)
-        const restSec = currentSet === 1
-            ? (currentWorkout[currentExerciseIndex].exerciseRestSec ?? 90)
-            : (currentWorkout[currentExerciseIndex].setRestSec ?? 60);
-        timerRemaining      = restSec;
-        currentRestDuration = restSec;
+        startSetRestThenActive();
+    }
+    saveInProgressWorkout();
+}
+
+// ── Review mode (Back button) ─────────────────────────────────────
+// Resolves the exercise object for whichever set is currently under
+// review (a circuit member, or a plain exercise).
+function getReviewExercise() {
+    const container = currentWorkout[reviewExIdx];
+    if (!container) return null;
+    return container.type === 'superset' ? container.members[reviewMemberIdx] : container;
+}
+
+function enterReviewMode() {
+    pauseTimerForReview();
+    const container = currentWorkout[currentExerciseIndex];
+
+    if (container.type === 'superset' && currentMemberIndex > 0) {
+        reviewExIdx = currentExerciseIndex;
+        reviewSetIdx = currentSet - 1;
+        reviewMemberIdx = currentMemberIndex - 1;
+    } else if (currentSet > 1) {
+        reviewExIdx = currentExerciseIndex;
+        reviewSetIdx = currentSet - 2;
+        reviewMemberIdx = container.type === 'superset' ? container.members.length - 1 : 0;
+    } else {
+        reviewExIdx = currentExerciseIndex - 1;
+        const prevContainer = currentWorkout[reviewExIdx];
+        reviewSetIdx = prevContainer.sets - 1;
+        reviewMemberIdx = prevContainer.type === 'superset' ? prevContainer.members.length - 1 : 0;
     }
 
-    timerMode = 'paused-rest';
-    updateHudTimerDisplay();
-    updateHudPhaseLabel();
+    reviewMode = true;
     renderExercise();
+}
+
+function reviewStepBack() {
+    const container = currentWorkout[reviewExIdx];
+    if (container.type === 'superset') {
+        if (reviewMemberIdx > 0) { reviewMemberIdx--; renderExercise(); return; }
+        if (reviewSetIdx > 0) { reviewSetIdx--; reviewMemberIdx = container.members.length - 1; renderExercise(); return; }
+    } else if (reviewSetIdx > 0) {
+        reviewSetIdx--;
+        renderExercise();
+        return;
+    }
+    if (reviewExIdx === 0) return; // already at the very first set — nothing earlier to show
+    reviewExIdx--;
+    const prevContainer = currentWorkout[reviewExIdx];
+    reviewSetIdx = prevContainer.sets - 1;
+    reviewMemberIdx = prevContainer.type === 'superset' ? prevContainer.members.length - 1 : 0;
+    renderExercise();
+}
+
+function reviewStepForward() {
+    const container = currentWorkout[reviewExIdx];
+    let exIdx = reviewExIdx, setIdx = reviewSetIdx, memberIdx = reviewMemberIdx;
+
+    if (container.type === 'superset') {
+        if (memberIdx < container.members.length - 1) memberIdx++;
+        else if (setIdx < container.sets - 1) { setIdx++; memberIdx = 0; }
+        else { exIdx++; setIdx = 0; memberIdx = 0; }
+    } else if (setIdx < container.sets - 1) {
+        setIdx++;
+    } else {
+        exIdx++; setIdx = 0; memberIdx = 0;
+    }
+
+    const liveContainer = currentWorkout[currentExerciseIndex];
+    const isAtLive = exIdx === currentExerciseIndex && setIdx === currentSet - 1 &&
+        (liveContainer.type !== 'superset' || memberIdx === currentMemberIndex);
+    if (isAtLive || exIdx >= currentWorkout.length) { exitReviewMode(); return; }
+
+    reviewExIdx = exIdx; reviewSetIdx = setIdx; reviewMemberIdx = memberIdx;
+    renderExercise();
+}
+
+function exitReviewMode() {
+    reviewMode = false;
+    reviewExIdx = null; reviewSetIdx = null; reviewMemberIdx = null;
+    recomputeRunningWorkTotal();
+    resumeTimerAfterReview();
+    renderExercise();
+}
+
+// Edits made in review mode go straight into the same weights/setTimes/
+// userInputs arrays the workout is running on — save + keep displaying.
+function reviewFieldChange(field, value) {
+    const ex = getReviewExercise();
+    if (!ex) return;
+    if (!Array.isArray(ex[field])) ex[field] = [];
+    ex[field][reviewSetIdx] = parseFloat(value) || 0;
+    saveInProgressWorkout();
+}
+
+function pauseTimerForReview() {
+    _reviewPausedState = { timerMode, timerRemaining, timerElapsed };
+    if (timerMode === 'rest') { clearInterval(timerInterval); timerInterval = null; timerMode = 'paused-rest'; }
+    else if (timerMode === 'countdown') { clearInterval(timerInterval); timerInterval = null; timerMode = 'paused-countdown'; }
+    else if (timerMode === 'countup') { clearInterval(timerInterval); timerInterval = null; timerMode = 'paused-countup'; }
+    updateHudTimerDisplay();
+}
+
+function resumeTimerAfterReview() {
+    if (!_reviewPausedState) return;
+    const prev = _reviewPausedState;
+    _reviewPausedState = null;
+    if (prev.timerMode === 'rest') { timerMode = 'rest'; runRestTimer(prev.timerRemaining); }
+    else if (prev.timerMode === 'countdown') { timerMode = 'countdown'; playWhistle(); runCountdownTimer(prev.timerRemaining); }
+    else if (prev.timerMode === 'countup') { timerElapsed = prev.timerElapsed; timerMode = 'countup'; playWhistle(); resumeCountupTimer(); }
+    else { timerMode = prev.timerMode; timerRemaining = prev.timerRemaining; timerElapsed = prev.timerElapsed; updateHudTimerDisplay(); }
+}
+
+// Work done in one set of one exercise/circuit-member (used by both the
+// normal work-total accumulation and the review-mode recompute below).
+function computeMemberSetWork(ex, setIdx) {
+    if (ex.phase !== 'work') return 0;
+    const addedW = ex.weights?.[setIdx] || 0;
+    const setTimeSec = ex.setTimes?.[setIdx] || 0;
+    const isCardioWatts = ex.type === 'cardio' && ex.inputMode === 'watts';
+    let repsOrDist = 0;
+    if (ex.type === 'isometric') repsOrDist = 0;
+    else if (isCardioWatts) repsOrDist = ex.userInputs?.[setIdx] || 0;
+    else if (ex.unit === 'reps') repsOrDist = ex.target;
+    else if (ex.unit === 'meters') repsOrDist = ex.distanceM || ex.target;
+    else repsOrDist = ex.userInputs?.[setIdx] || 0;
+    return calcSetWork(ex, addedW, repsOrDist, setTimeSec);
+}
+
+// Recomputes runningWorkTotal from scratch across every set completed so
+// far, so edits made in review mode are reflected once the user resumes.
+function recomputeRunningWorkTotal() {
+    let total = 0;
+    for (let ei = 0; ei <= currentExerciseIndex; ei++) {
+        const container = currentWorkout[ei];
+        const members = container.type === 'superset' ? container.members : [container];
+        const completedRounds = (ei < currentExerciseIndex) ? container.sets : (currentSet - 1);
+        members.forEach(member => {
+            for (let si = 0; si < completedRounds; si++) total += computeMemberSetWork(member, si);
+        });
+        // Mid-round on the live exercise: include circuit members already
+        // done in the round currently in progress.
+        if (ei === currentExerciseIndex && container.type === 'superset' && currentMemberIndex > 0) {
+            for (let mi = 0; mi < currentMemberIndex; mi++) {
+                total += computeMemberSetWork(container.members[mi], currentSet - 1);
+            }
+        }
+    }
+    runningWorkTotal = total;
+    updateWorkTotalDisplay();
 }
 
 // ── Edit current exercise mid-workout ─────────────────────────────
 function editCurrentExercise() {
     if (currentExerciseIndex >= currentWorkout.length) return;
+    if (currentWorkout[currentExerciseIndex].type === 'superset') {
+        alert('Editing a single circuit exercise mid-workout isn\u2019t supported yet — edit the circuit from the Plan tab, or use Restart This Set.');
+        return;
+    }
     pauseTimerForEdit();
     const ex = currentWorkout[currentExerciseIndex];
     _exModal = { mode: 'workout', editIdx: currentExerciseIndex, phase: null };
@@ -2586,7 +3141,8 @@ function editCurrentExercise() {
 // Applies the edited exercise straight to the running currentWorkout copy
 // (never the saved plan) and resets back to set 1 of that exercise, as if
 // just arriving at it — matching startExerciseRestThenActive()'s normal
-// flow for a freshly-reached exercise.
+// flow for a freshly-reached exercise. (Only reachable for plain, non-
+// circuit exercises — see the guard in editCurrentExercise above.)
 function applyWorkoutExerciseEdit(exObj) {
     const idx  = currentExerciseIndex;
     const sets = exObj.sets;
@@ -2596,6 +3152,7 @@ function applyWorkoutExerciseEdit(exObj) {
     currentWorkout[idx] = exObj;
 
     currentSet = 1;
+    currentMemberIndex = 0;
     stopExerciseTimer();
     _editExercisePausedState = null;
     exModalClose();
@@ -2620,12 +3177,19 @@ function renderExercise() {
         return;
     }
 
-    const ex = currentWorkout[currentExerciseIndex];
+    if (reviewMode) { renderReviewCard(); return; }
+
+    const container = currentWorkout[currentExerciseIndex];
+    const ex = getActiveExercise();
     const setIdx = currentSet - 1;
 
-    const isFirst   = currentExerciseIndex === 0 && currentSet === 1;
-    const isLastSet = currentExerciseIndex === currentWorkout.length - 1 && currentSet === ex.sets;
+    const isFirst = currentExerciseIndex === 0 && currentSet === 1 && currentMemberIndex === 0;
+    const isLastMemberOfRound = container.type !== 'superset' || currentMemberIndex === container.members.length - 1;
+    const isLastSet = currentExerciseIndex === currentWorkout.length - 1 && currentSet === container.sets && isLastMemberOfRound;
     const isCardioWatts = ex.type === 'cardio' && ex.inputMode === 'watts';
+    const circuitBadgeHTML = container.type === 'superset'
+        ? `<div class="workout-phase-badge">🔄 Circuit — Exercise ${currentMemberIndex + 1}/${container.members.length}</div>`
+        : '';
 
     // Goal line
     let goalText = '';
@@ -2723,6 +3287,7 @@ function renderExercise() {
                    ${prev.weight !== null ? ` · Added: ${prev.weight} ${prev.weightUnit}` : ''}
                    ${prev.accomplished !== null ? ` · Logged: ${prev.accomplished} ${prev.accomplishedLabel}` : ''}
                    ${prev.setTimeSec !== null ? ` · Time: ${formatTime(prev.setTimeSec)}` : ''}
+                   ${prev.isCardioWatts ? ' · ⚡ Watts-based' : ` · ${prev.laterality === 'unilateral' ? '🏋 Unilateral' : '🏋 Bilateral'}`}
                </span>
            </div>`
         : `<div class="prev-accomplishment prev-none">No previous data for this set</div>`;
@@ -2750,8 +3315,9 @@ function renderExercise() {
         : `<p class="weight-inline">Body weight load: ${formatBodyWeightForce(ex)} &nbsp;—&nbsp; <span title="${lateralityTitle}">${lateralityIconHtml}</span> Added weight (${userSettings.weightUnit}): <input type="number" step="0.5" id="weight-input" value="${ex.weights[setIdx] || ''}" class="weight-inline-input"></p>`;
 
     list.innerHTML = `
+        ${circuitBadgeHTML}
         <h3>${escHtml(ex.name)}</h3>
-        <p class="goal-set-line">Set <span class="set-counter-num">${currentSet}/${ex.sets}</span> — ${goalText}</p>
+        <p class="goal-set-line">Set <span class="set-counter-num">${currentSet}/${container.sets}</span> — ${goalText}</p>
         ${weightRowHTML}
         ${cardioActiveDistanceBanner}
         ${timedInputHTML}
@@ -2764,7 +3330,8 @@ function renderExercise() {
             }
         </div>
         ${prevHTML}
-        <button class="edit-current-ex-btn" onclick="editCurrentExercise()">✏️ Edit This Exercise</button>
+        <button class="edit-current-ex-btn restart-set-btn" onclick="restartCurrentSet()">⟲ Restart This Set</button>
+        ${container.type !== 'superset' ? `<button class="edit-current-ex-btn" onclick="editCurrentExercise()">✏️ Edit This Exercise</button>` : ''}
     `;
 
     // Auto-focus timed input if shown
@@ -2776,13 +3343,68 @@ function renderExercise() {
     }
 }
 
+// ── Review-mode card renderer ──────────────────────────────────────
+// Shows a previously-recorded set (weight/reps-distance-watts/time) with
+// editable fields, plus ‹ to step further back and Resume ▶ to return
+// toward the live set.
+function renderReviewCard() {
+    const list = document.getElementById('exercise-list');
+    const container = currentWorkout[reviewExIdx];
+    const ex = getReviewExercise();
+    const setIdx = reviewSetIdx;
+    const isIso = ex.type === 'isometric';
+    const isCardioWatts = ex.type === 'cardio' && ex.inputMode === 'watts';
+
+    const phaseBadgeMap = { warmup: '🌡 Warmup', work: '💪 Work', cooldown: '❄️ Cooldown' };
+    const phaseBadge = phaseBadgeMap[ex.phase || 'work'] || '';
+    const circuitBadgeHTML = container.type === 'superset'
+        ? `<div class="workout-phase-badge">🔄 Circuit — Exercise ${reviewMemberIdx + 1}/${container.members.length}</div>`
+        : '';
+
+    const weight = ex.weights?.[setIdx] ?? 0;
+    const time   = ex.setTimes?.[setIdx] ?? 0;
+    const userIn = ex.userInputs?.[setIdx] ?? 0;
+
+    let loggedFieldHTML = '';
+    if (isCardioWatts) {
+        loggedFieldHTML = `<label>Avg Watts <input type="number" step="1" value="${userIn}" onchange="reviewFieldChange('userInputs', this.value)"></label>`;
+    } else if (!isIso && (ex.unit === 'seconds' || ex.unit === 'minutes') && ex.timedInput !== 'none') {
+        const lbl = ex.timedInput === 'distance' ? 'Distance' : 'Reps';
+        loggedFieldHTML = `<label>${lbl} logged <input type="number" step="1" value="${userIn}" onchange="reviewFieldChange('userInputs', this.value)"></label>`;
+    }
+
+    const weightFieldHTML = !isCardioWatts
+        ? `<label>Added Weight (${userSettings.weightUnit}) <input type="number" step="0.5" value="${weight}" onchange="reviewFieldChange('weights', this.value)"></label>`
+        : '';
+
+    const timeFieldHTML = `<label>Time recorded (s) <input type="number" step="1" value="${time}" onchange="reviewFieldChange('setTimes', this.value)"></label>`;
+
+    const canGoBack = !(reviewExIdx === 0 && reviewSetIdx === 0 && reviewMemberIdx === 0);
+
+    list.innerHTML = `
+        ${circuitBadgeHTML}
+        <div class="workout-phase-badge">${phaseBadge} · 🔍 Reviewing</div>
+        <h3>${escHtml(ex.name)}</h3>
+        <p class="goal-set-line">Set <span class="set-counter-num">${setIdx + 1}/${container.sets}</span> — previously recorded</p>
+        <div class="review-fields">
+            ${weightFieldHTML}
+            ${loggedFieldHTML}
+            ${timeFieldHTML}
+        </div>
+        <div class="set-btn-row">
+            <button class="back-set-btn" onclick="reviewStepBack()" ${canGoBack ? '' : 'disabled'}>‹</button>
+            <button class="next-set-btn" onclick="reviewStepForward()">Resume ▶</button>
+        </div>
+    `;
+}
+
 function completeWorkout(silent = false) {
     ensureAudioUnlocked();
     const wo = workoutPlan[currentWorkoutIndex];
     if (!silent && !confirm(`Complete "${wo.name}"?\n\nThis will log your workout and advance to the next one.`)) return;
 
-    // Capture last set data
-    const lastEx = currentWorkout[currentExerciseIndex];
+    // Capture last set data (the active circuit member, if mid-circuit)
+    const lastEx = getActiveExercise();
     if (lastEx) {
         const setIdx = currentSet - 1;
         const isCardioWatts = lastEx.type === 'cardio' && lastEx.inputMode === 'watts';
@@ -2832,23 +3454,31 @@ function completeWorkout(silent = false) {
     let workoutTotalPower  = 0;
     let workoutPowerCount  = 0;
 
-    const loggedExercises = currentWorkout.map(ex => {
-        const totals = calcExerciseTotals(ex);
-        // Accumulate workout totals (Work phase only)
-        if (ex.phase === 'work' && !totals.isIsometric) {
-            workoutTotalWork  += totals.totalWork  || 0;
-            if (totals.totalPower !== null) {
-                workoutTotalPower += totals.totalPower;
-                workoutPowerCount++;
+    // Superset/circuit containers hold their real per-exercise data on
+    // .members[] — flatten those into individual logged entries (tagged
+    // with circuitName) so Progress-tab totals/charts/CSV all work exactly
+    // like a normal flat exercise list.
+    const loggedExercises = [];
+    currentWorkout.forEach(container => {
+        const membersToLog = container.type === 'superset' ? container.members : [container];
+        membersToLog.forEach(ex => {
+            const totals = calcExerciseTotals(ex);
+            if (ex.phase === 'work' && !totals.isIsometric) {
+                workoutTotalWork  += totals.totalWork  || 0;
+                if (totals.totalPower !== null) {
+                    workoutTotalPower += totals.totalPower;
+                    workoutPowerCount++;
+                }
             }
-        }
-        return {
-            ...ex,
-            totalWork:    totals.totalWork,
-            totalPower:   totals.totalPower,
-            totalTension: totals.totalTension,
-            isIsometric:  totals.isIsometric
-        };
+            loggedExercises.push({
+                ...ex,
+                circuitName:  container.type === 'superset' ? container.name : null,
+                totalWork:    totals.totalWork,
+                totalPower:   totals.totalPower,
+                totalTension: totals.totalTension,
+                isIsometric:  totals.isIsometric
+            });
+        });
     });
 
     progressLogs.push({
@@ -2941,7 +3571,7 @@ function triggerCSVDownload(csvContent, filename) {
 // ── CSV BACKUP & RESTORE ──────────────────────────────────────────
 // Exports/imports ALL workout programs (not just the active one), so a
 // backup/restore round-trip never silently drops a program.
-const CSV_HEADER = 'program_index,program_name,workout_index,workout_name,exercise_name,type,phase,sets,target,unit,bodyWeightPct,heightPct,distanceM,setRestSec,exerciseRestSec,timedInput,autoSequence,laterality,inputMode';
+const CSV_HEADER = 'program_index,program_name,workout_index,workout_name,exercise_name,type,phase,sets,target,unit,bodyWeightPct,heightPct,distanceM,setRestSec,exerciseRestSec,timedInput,autoSequence,laterality,inputMode,supersetGroup,transitionRestSec';
 
 function csvEscape(val) {
     const s = String(val);
@@ -2962,16 +3592,48 @@ function exportPlanCSV() {
         return;
     }
     const rows = [CSV_HEADER];
+    let supersetGroupCounter = 0;
     workoutPrograms.forEach((program, pIdx) => {
         if (program.workouts.length === 0) {
-            rows.push([csvEscape(pIdx), csvEscape(program.name), '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
+            rows.push([csvEscape(pIdx), csvEscape(program.name), '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
             return;
         }
         program.workouts.forEach((wo, wIdx) => {
             if (wo.exercises.length === 0) {
-                rows.push([csvEscape(pIdx), csvEscape(program.name), csvEscape(wIdx), csvEscape(wo.name), '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
+                rows.push([csvEscape(pIdx), csvEscape(program.name), csvEscape(wIdx), csvEscape(wo.name), '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
             } else {
                 wo.exercises.forEach(ex => {
+                    if (ex.type === 'superset') {
+                        // One row per circuit member, all sharing a supersetGroup id
+                        // so importPlanCSV can rebuild the container. Sets/rest
+                        // fields are the container's (repeated on every row for a
+                        // simpler, more robust round-trip); transitionRestSec only
+                        // applies to non-primary members.
+                        const groupId = ++supersetGroupCounter;
+                        ex.members.forEach((m, mi) => {
+                            rows.push([
+                                csvEscape(pIdx), csvEscape(program.name), csvEscape(wIdx), csvEscape(wo.name),
+                                csvEscape(m.name),
+                                csvEscape(m.type            || 'isotonic'),
+                                csvEscape(ex.phase           || 'work'),
+                                csvEscape(ex.sets),
+                                csvEscape(m.target),
+                                csvEscape(m.unit),
+                                csvEscape(m.bodyWeightPct   ?? 0),
+                                csvEscape(m.heightPct       ?? ''),
+                                csvEscape(m.distanceM       ?? ''),
+                                csvEscape(ex.setRestSec      ?? 60),
+                                csvEscape(ex.exerciseRestSec ?? 90),
+                                csvEscape(m.timedInput      || 'reps'),
+                                csvEscape('false'),
+                                csvEscape(m.laterality      || 'bilateral'),
+                                csvEscape(m.inputMode        || ''),
+                                csvEscape(groupId),
+                                csvEscape(mi === 0 ? '' : (m.transitionRestSec ?? 15))
+                            ].join(','));
+                        });
+                        return;
+                    }
                     rows.push([
                         csvEscape(pIdx),
                         csvEscape(program.name),
@@ -2991,7 +3653,9 @@ function exportPlanCSV() {
                         csvEscape(ex.timedInput      || 'reps'),
                         csvEscape(ex.autoSequence    ? 'true' : 'false'),
                         csvEscape(ex.laterality      || 'bilateral'),
-                        csvEscape(ex.inputMode        || '')
+                        csvEscape(ex.inputMode        || ''),
+                        csvEscape(''),
+                        csvEscape('')
                     ].join(','));
                 });
             }
@@ -3057,6 +3721,10 @@ function importPlanCSV(event) {
                 // inputMode only matters for type === 'cardio'; older exports
                 // won't have this column at all.
                 const inputMode       = (cols[ci++]?.trim() || 'watts') || 'watts';
+                // Superset/circuit columns — absent entirely in pre-11.2
+                // exports, in which case every row is just a normal exercise.
+                const supersetGroupRaw   = cols[ci++]?.trim() || '';
+                const transitionRestRaw  = cols[ci++]?.trim() || '';
 
                 if (!programsMap[pIdx]) {
                     programsMap[pIdx] = { name: pName, workoutsMap: {}, workoutOrder: [] };
@@ -3073,11 +3741,60 @@ function importPlanCSV(event) {
                         bodyWeightPct, heightPct, distanceM,
                         setRestSec, exerciseRestSec,
                         sets, target, unit, timedInput,
-                        autoSequence, laterality, weights: []
+                        autoSequence, laterality, weights: [],
+                        _supersetGroup: supersetGroupRaw || null,
+                        _transitionRestSec: transitionRestRaw !== '' ? parseInt(transitionRestRaw) : 15
                     };
                     if (type === 'cardio') exObj.inputMode = inputMode;
                     program.workoutsMap[wIdx].exercises.push(exObj);
                 }
+            });
+
+            // Collapse consecutive rows sharing the same supersetGroup id
+            // (within one workout) back into a single superset container.
+            function collapseSupersets(rawExercises) {
+                const result = [];
+                let i = 0;
+                while (i < rawExercises.length) {
+                    const cur = rawExercises[i];
+                    if (cur._supersetGroup) {
+                        const groupId = cur._supersetGroup;
+                        const members = [];
+                        let j = i;
+                        while (j < rawExercises.length && rawExercises[j]._supersetGroup === groupId) {
+                            members.push(rawExercises[j]);
+                            j++;
+                        }
+                        const first = members[0];
+                        result.push({
+                            name: members.map(m => m.name).join(' + '),
+                            type: 'superset',
+                            phase: first.phase,
+                            sets: first.sets,
+                            setRestSec: first.setRestSec,
+                            exerciseRestSec: first.exerciseRestSec,
+                            members: members.map(m => ({
+                                name: m.name, type: m.type, bodyWeightPct: m.bodyWeightPct,
+                                heightPct: m.heightPct, distanceM: m.distanceM, unit: m.unit,
+                                target: m.target, timedInput: m.timedInput, laterality: m.laterality,
+                                inputMode: m.inputMode,
+                                transitionRestSec: m._transitionRestSec ?? 15, weights: []
+                            }))
+                        });
+                        i = j;
+                    } else {
+                        delete cur._supersetGroup;
+                        delete cur._transitionRestSec;
+                        result.push(cur);
+                        i++;
+                    }
+                }
+                return result;
+            }
+            Object.values(programsMap).forEach(program => {
+                Object.keys(program.workoutsMap).forEach(wIdx => {
+                    program.workoutsMap[wIdx].exercises = collapseSupersets(program.workoutsMap[wIdx].exercises);
+                });
             });
 
             const importedPrograms = programOrder.map(pIdx => {
@@ -3331,7 +4048,7 @@ function updateSoundUI() {
 }
 
 // ── PROGRESS CSV BACKUP & RESTORE ────────────────────────────────
-const PROGRESS_CSV_HEADER = 'date,workout_name,duration_seconds,weight_unit,height_unit,workout_total_work,workout_total_power,exercise_name,type,phase,sets,target,unit,bodyWeightPct,heightPct,weights,timedInput,user_inputs,set_times,total_work,total_power,total_tension,laterality,inputMode';
+const PROGRESS_CSV_HEADER = 'date,workout_name,duration_seconds,weight_unit,height_unit,workout_total_work,workout_total_power,exercise_name,type,phase,sets,target,unit,bodyWeightPct,heightPct,weights,timedInput,user_inputs,set_times,total_work,total_power,total_tension,laterality,inputMode,circuit_name';
 
 function exportProgressCSV() {
     if (progressLogs.length === 0) {
@@ -3348,7 +4065,7 @@ function exportProgressCSV() {
         const wkWork  = csvEscape(log.workoutTotalWork  ?? '');
         const wkPower = csvEscape(log.workoutTotalPower ?? '');
         if (!log.exercises || log.exercises.length === 0) {
-            rows.push([date, woName, dur, wu, hu, wkWork, wkPower, '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
+            rows.push([date, woName, dur, wu, hu, wkWork, wkPower, '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''].join(','));
         } else {
             log.exercises.forEach(ex => {
                 const weights    = Array.isArray(ex.weights)    ? ex.weights.join('|')    : '';
@@ -3372,7 +4089,8 @@ function exportProgressCSV() {
                     csvEscape(ex.totalPower    ?? ''),
                     csvEscape(ex.totalTension  ?? ''),
                     csvEscape(ex.laterality    || 'bilateral'),
-                    csvEscape(ex.inputMode     || '')
+                    csvEscape(ex.inputMode     || ''),
+                    csvEscape(ex.circuitName   || '')
                 ].join(','));
             });
         }
@@ -3403,6 +4121,7 @@ function importProgressCSV(event) {
             const hasSetTimes    = header.includes('set_times');
             const hasLaterality  = header.includes('laterality');
             const hasInputMode   = header.includes('inputmode');
+            const hasCircuitName = header.includes('circuit_name');
             const logMap = {}, logOrder = [];
             lines.slice(1).forEach(line => {
                 const cols = parseCSVLine(line);
@@ -3442,6 +4161,7 @@ function importProgressCSV(event) {
                 }
                 const laterality = hasLaterality ? (cols[ci++]?.trim() || 'bilateral') : 'bilateral';
                 const inputMode  = hasInputMode ? (cols[ci++]?.trim() || 'watts') : 'watts';
+                const circuitName = hasCircuitName ? (cols[ci++]?.trim() || '') : '';
                 const key = date + '||' + woName;
                 if (!logMap[key]) {
                     logMap[key] = { date, workoutName: woName, duration, weightUnit, heightUnit,
@@ -3454,7 +4174,8 @@ function importProgressCSV(event) {
                         bodyWeightPct, heightPct, laterality,
                         sets, target, unit, timedInput, weights, userInputs, setTimes,
                         totalWork, totalPower, totalTension,
-                        isIsometric: type === 'isometric'
+                        isIsometric: type === 'isometric',
+                        circuitName: circuitName || null
                     };
                     if (type === 'cardio') exObj.inputMode = inputMode;
                     logMap[key].exercises.push(exObj);
@@ -3547,7 +4268,8 @@ function renderProgressLog() {
                     const wval = ex.isIsometric
                         ? (ex.totalTension != null ? `Tension: ${ex.totalTension.toFixed(0)} ${unit}·s` : '')
                         : (ex.totalWork    != null ? `Work: ${ex.totalWork.toFixed(0)} ${unit}` + (ex.totalPower != null ? ` · Power: ${ex.totalPower.toFixed(1)} ${unit}/s` : '') : '');
-                    return `<p>${escHtml(ex.name)}: ${wval || ex.weights.join(', ') + ' ' + wu}</p>`;
+                    const circuitTag = ex.circuitName ? `🔄 ` : '';
+                    return `<p>${circuitTag}${escHtml(ex.name)}: ${wval || ex.weights.join(', ') + ' ' + wu}</p>`;
                 }).join('')}
             </div>`;
     });

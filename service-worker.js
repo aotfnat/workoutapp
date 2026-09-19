@@ -1,7 +1,9 @@
 // service-worker.js
-// Version 11.1.1 — Cache bump to pick up styles.css for weekly plan always being a single column
+// Version 11.2 — Cache bump to pick up app.js/styles.css (review-mode back
+// button, restart-set button, superset/circuit support, "last time"
+// laterality display)
 
-const CACHE_NAME = 'fitness-app-v11.1.1';
+const CACHE_NAME = 'fitness-app-v11.2';
 
 const BASE = self.location.pathname.replace(/\/service-worker\.js$/, '');
 const urlsToCache = [
