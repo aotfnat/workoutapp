@@ -1,9 +1,8 @@
 // service-worker.js
-// Version 11.2 — Cache bump to pick up app.js/styles.css (review-mode back
-// button, restart-set button, superset/circuit support, "last time"
-// laterality display)
+// Version 11.2.1 — Cache bump to pick up app.js (restart-from-review,
+// cancel-from-review, superset-member library search)
 
-const CACHE_NAME = 'fitness-app-v11.2';
+const CACHE_NAME = 'fitness-app-v11.2.1';
 
 const BASE = self.location.pathname.replace(/\/service-worker\.js$/, '');
 const urlsToCache = [

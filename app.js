@@ -1,4 +1,21 @@
 // app.js
+//Version 11.2.1
+//SOC: Corrections to the 11.2 review/circuit work:
+//     (1) "Restart This Set" moved OFF the live exercise card — it now
+//     only appears on the review screen (Back button), and pressing it
+//     rewinds the LIVE workout position back to the reviewed set, clears
+//     that set's data, and restarts its rest→active sequence from there
+//     (restartFromReview; shared start logic factored into
+//     beginSetSequence). (2) On the review screen, once you've stepped
+//     back to the very first set, the ‹ button becomes a ✕ Cancel button
+//     (cancelWorkoutFromReview) that cancels the workout with no data
+//     recorded — same as pressing Back at set 1 before ever reviewing.
+//     (3) Additional superset/circuit exercises (the mini sub-forms in
+//     Plan → Add Exercise → Superset/Circuit) now have their own exercise-
+//     library search (smLibrarySearch/smApplyLibraryEntry), auto-filling
+//     body weight %/height %/unit from the picked entry, with a live BW
+//     preview (smBwPreviewUpdate) — Cardio/Watt library entries are
+//     filtered out since circuit members stay Isotonic/Isometric only.
 //Version 11.2
 //SOC: (1) "Last time" block now shows laterality (Bilateral/Unilateral) or
 //     "⚡ Watts-based" for the prior set, via getPreviousAccomplishment.
@@ -1881,13 +1898,17 @@ function renderSupersetAddButton() {
 function renderSupersetMemberBlock(i, m) {
     m = m || { name: '', type: 'isotonic', bodyWeightPct: 0, heightPct: null, unit: 'reps', target: 10, laterality: 'bilateral', transitionRestSec: 15 };
     const isIso = m.type === 'isometric';
+    const bwPreview = smBwPreviewText(m.bodyWeightPct || 0);
     return `
     <div class="ex-form-section" id="sm-block-${i}" style="border:1px dashed #3a3a3c;border-radius:10px;padding:10px;margin-top:8px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
             <label class="ex-form-label" style="margin:0;">🔄 Circuit Exercise #${i + 2}</label>
             <button type="button" class="icon-btn danger" onclick="exFormRemoveSupersetMember(${i})">✕ Remove</button>
         </div>
-        <input id="sm-name-${i}" class="ex-text-input" type="text" placeholder="Exercise name" value="${escHtml(m.name)}" style="margin-bottom:8px;">
+        <input id="sm-name-${i}" class="ex-text-input" type="text"
+            placeholder="Type to search library or enter a name…" value="${escHtml(m.name)}"
+            oninput="smLibrarySearch(${i}, this.value)" autocomplete="off" style="margin-bottom:6px;">
+        <div id="sm-lib-results-${i}" class="ex-lib-results" style="margin-bottom:8px;max-height:120px;"></div>
         <div class="ex-form-row" style="margin-bottom:8px;">
             <select id="sm-type-${i}" class="ex-form-select" onchange="exFormMemberTypeChanged(${i})">
                 <option value="isotonic" ${!isIso ? 'selected' : ''}>Isotonic</option>
@@ -1897,13 +1918,15 @@ function renderSupersetMemberBlock(i, m) {
         <div class="ex-form-row" style="gap:8px;margin-bottom:8px;">
             <div style="flex:1;">
                 <label class="ex-form-label" style="font-size:11px;">BW %</label>
-                <input id="sm-bwpct-${i}" class="ex-num-input" type="number" min="0" max="100" value="${Math.round((m.bodyWeightPct || 0) * 100)}" style="width:100%;">
+                <input id="sm-bwpct-${i}" class="ex-num-input" type="number" min="0" max="100" value="${Math.round((m.bodyWeightPct || 0) * 100)}"
+                    oninput="smBwPreviewUpdate(${i})" style="width:100%;">
             </div>
             <div style="flex:1;" id="sm-height-wrap-${i}" ${isIso ? 'style="display:none"' : ''}>
                 <label class="ex-form-label" style="font-size:11px;">Height %</label>
                 <input id="sm-hpct-${i}" class="ex-num-input" type="number" min="0" max="100" value="${m.heightPct != null ? Math.round(m.heightPct * 100) : ''}" style="width:100%;">
             </div>
         </div>
+        <p id="sm-bw-preview-${i}" class="ex-bw-preview" style="margin:-4px 0 8px;">= ${bwPreview}</p>
         <div class="ex-form-row" style="gap:8px;margin-bottom:8px;">
             <div style="flex:1;" id="sm-unit-wrap-${i}">
                 <label class="ex-form-label" style="font-size:11px;">Unit</label>
@@ -1934,6 +1957,69 @@ function renderSupersetMemberBlock(i, m) {
             </div>
         </div>
     </div>`;
+}
+
+function smBwPreviewText(pct) {
+    const bw = getUserWeightInWorkingUnit();
+    if (bw === null) return '(enter weight in Settings)';
+    return `${(bw * pct).toFixed(1)} ${userSettings.weightUnit}`;
+}
+
+function smBwPreviewUpdate(i) {
+    const pctEl = document.getElementById(`sm-bwpct-${i}`);
+    const previewEl = document.getElementById(`sm-bw-preview-${i}`);
+    if (!pctEl || !previewEl) return;
+    const pct = (parseFloat(pctEl.value) || 0) / 100;
+    previewEl.textContent = `= ${smBwPreviewText(pct)}`;
+}
+
+// Library search for a circuit-exercise sub-form. Cardio/Watt (watts-mode)
+// entries are excluded — additional circuit exercises are Isotonic/
+// Isometric only (see the note above renderSupersetMemberBlock).
+function smLibrarySearch(i, query) {
+    const resultsEl = document.getElementById(`sm-lib-results-${i}`);
+    if (!resultsEl) return;
+    const q = query.trim();
+    if (!q) { resultsEl.innerHTML = ''; return; }
+    const matches = (typeof librarySearch === 'function')
+        ? librarySearch(q, 'all').filter(m => !(m.type === 'cardio' && m.inputMode === 'watts')).slice(0, 6)
+        : [];
+    if (matches.length === 0) {
+        resultsEl.innerHTML = `<p style="color:#636366;font-size:12px;margin:4px 0;">No matches — fill in the fields manually.</p>`;
+        return;
+    }
+    resultsEl.innerHTML = matches.map(m => {
+        const customBadge = m.custom ? ' <span style="color:#ff9f0a;font-size:10px;">★</span>' : '';
+        const metaText = `${m.category} · BW ${Math.round((m.bodyWeightPct || 0) * 100)}%${m.heightPct != null ? ` · H ${Math.round(m.heightPct * 100)}%` : ''}`;
+        return `<button class="ex-lib-result-btn" onclick="smApplyLibraryEntry(${i}, ${JSON.stringify(m).replace(/"/g, '&quot;')})">
+            <span class="ex-lib-name">${escHtml(m.name)}${customBadge}</span>
+            <span class="ex-lib-meta">${metaText}</span>
+        </button>`;
+    }).join('');
+}
+
+// Applies a picked library entry to a circuit-exercise sub-form, auto-
+// filling name/type/body-weight %/height %/unit.
+function smApplyLibraryEntry(i, entry) {
+    const nameEl = document.getElementById(`sm-name-${i}`);
+    if (nameEl) nameEl.value = entry.name;
+    const typeEl = document.getElementById(`sm-type-${i}`);
+    if (typeEl) {
+        typeEl.value = entry.type === 'isometric' ? 'isometric' : 'isotonic';
+        exFormMemberTypeChanged(i); // rebuilds the unit select for the right type
+    }
+    const bwEl = document.getElementById(`sm-bwpct-${i}`);
+    if (bwEl) bwEl.value = Math.round((entry.bodyWeightPct ?? 0) * 100);
+    const hEl = document.getElementById(`sm-hpct-${i}`);
+    if (hEl) hEl.value = (entry.heightPct !== null && entry.heightPct !== undefined) ? Math.round(entry.heightPct * 100) : '';
+    const unitEl = document.getElementById(`sm-unit-${i}`);
+    if (unitEl && entry.unit) {
+        const hasOpt = [...unitEl.options].some(o => o.value === entry.unit);
+        if (hasOpt) unitEl.value = entry.unit;
+    }
+    smBwPreviewUpdate(i);
+    const resultsEl = document.getElementById(`sm-lib-results-${i}`);
+    if (resultsEl) resultsEl.innerHTML = '';
 }
 
 function exFormMemberTypeChanged(i) {
@@ -2874,8 +2960,8 @@ function nextSet() {
 // Advances the workout by exactly one "step": the next member of a
 // circuit's current round, the next round of a circuit/plain exercise, or
 // the next exercise entirely once a circuit/plain exercise's rounds are
-// all done. Kept separate from nextSet() so restartCurrentSet() and
-// nextSet() share the same advance logic.
+// all done. Kept separate from nextSet() so it can also be reused if
+// needed elsewhere.
 function startNextStepInWorkout() {
     const container = currentWorkout[currentExerciseIndex];
 
@@ -2947,23 +3033,11 @@ function prevSet() {
     enterReviewMode();
 }
 
-// ── Restart current set ───────────────────────────────────────────
-// Clears whatever's recorded for the set currently on screen (weight,
-// reps/distance/watts, time) and restarts that set's rest→active sequence
-// from scratch, without touching any other set/exercise.
-function restartCurrentSet() {
-    if (!workoutInProgress || reviewMode) return;
-    if (!confirm('Restart this set? Any weight/reps/time entered for it will be cleared.')) return;
-    const ex = getActiveExercise();
-    if (!ex) return;
-    const setIdx = currentSet - 1;
-    ex.weights[setIdx]    = 0;
-    ex.setTimes[setIdx]   = 0;
-    ex.userInputs[setIdx] = 0;
-    stopExerciseTimer();
-    setStartTime = null;
-    renderExercise();
-
+// Starts the appropriate rest→active sequence for whatever the live
+// position (currentExerciseIndex/currentSet/currentMemberIndex) currently
+// points at — shared by restartFromReview() below and anywhere else that
+// needs to (re)begin "the set we're now sitting on" from scratch.
+function beginSetSequence() {
     const container = currentWorkout[currentExerciseIndex];
     const isFirstOfContainer = currentSet === 1 && (container.type !== 'superset' || currentMemberIndex === 0);
     if (isFirstOfContainer) {
@@ -2974,7 +3048,6 @@ function restartCurrentSet() {
     } else {
         startSetRestThenActive();
     }
-    saveInProgressWorkout();
 }
 
 // ── Review mode (Back button) ─────────────────────────────────────
@@ -3056,6 +3129,66 @@ function exitReviewMode() {
     recomputeRunningWorkTotal();
     resumeTimerAfterReview();
     renderExercise();
+}
+
+// ── Restart This Set (review screen only) ──────────────────────────
+// Rewinds the LIVE workout position back to whichever set is currently
+// being reviewed, clears that set's recorded data, and restarts its
+// rest→active sequence — effectively redoing the workout from that point
+// forward. Any sets between the reviewed one and where the user actually
+// was are simply left in place unrecorded-from-here-on: since
+// recomputeRunningWorkTotal only sums sets before the (now-rewound)
+// currentSet, they drop out of the running total until redone.
+function restartFromReview() {
+    if (!confirm('Restart the workout from this set? Any sets performed after this point will need to be redone.')) return;
+
+    const ex = getReviewExercise();
+    const setIdx = reviewSetIdx;
+    if (ex) {
+        ex.weights[setIdx]    = 0;
+        ex.setTimes[setIdx]   = 0;
+        ex.userInputs[setIdx] = 0;
+    }
+
+    currentExerciseIndex = reviewExIdx;
+    currentSet           = reviewSetIdx + 1;
+    currentMemberIndex   = reviewMemberIdx;
+
+    reviewMode = false;
+    reviewExIdx = null; reviewSetIdx = null; reviewMemberIdx = null;
+    _reviewPausedState = null; // discard — we're not resuming the old (pre-rewind) timer
+
+    stopExerciseTimer();
+    setStartTime = null;
+    recomputeRunningWorkTotal();
+    renderExercise();
+    saveInProgressWorkout();
+    beginSetSequence();
+}
+
+// ── Cancel from review screen ───────────────────────────────────────
+// Reached when the Back button has been pressed all the way to the very
+// first set of the workout (review's ‹ becomes a ✕ Cancel button there).
+// Cancels the workout without recording any data, same as pressing Back
+// at set 1 before ever reviewing anything.
+function cancelWorkoutFromReview() {
+    if (!confirm('Cancel this workout? No data will be recorded.')) return;
+    reviewMode = false;
+    reviewExIdx = null; reviewSetIdx = null; reviewMemberIdx = null;
+    _reviewPausedState = null;
+    currentMemberIndex = 0;
+    lapsedTime        = 0;
+    workoutStartTime  = null;
+    workoutInProgress = false;
+    runningWorkTotal  = 0;
+    clearInProgressWorkout();
+    clearInterval(lapsedTimerInterval);
+    stopExerciseTimer();
+    document.getElementById('lapsed-time').textContent = formatTime(0);
+    updateWorkTotalDisplay();
+    renderExercise();
+    showStartButton();
+    updateHudPhaseLabel();
 }
 
 // Edits made in review mode go straight into the same weights/setTimes/
@@ -3330,7 +3463,6 @@ function renderExercise() {
             }
         </div>
         ${prevHTML}
-        <button class="edit-current-ex-btn restart-set-btn" onclick="restartCurrentSet()">⟲ Restart This Set</button>
         ${container.type !== 'superset' ? `<button class="edit-current-ex-btn" onclick="editCurrentExercise()">✏️ Edit This Exercise</button>` : ''}
     `;
 
@@ -3379,7 +3511,7 @@ function renderReviewCard() {
 
     const timeFieldHTML = `<label>Time recorded (s) <input type="number" step="1" value="${time}" onchange="reviewFieldChange('setTimes', this.value)"></label>`;
 
-    const canGoBack = !(reviewExIdx === 0 && reviewSetIdx === 0 && reviewMemberIdx === 0);
+    const atFirstSet = (reviewExIdx === 0 && reviewSetIdx === 0 && reviewMemberIdx === 0);
 
     list.innerHTML = `
         ${circuitBadgeHTML}
@@ -3391,8 +3523,9 @@ function renderReviewCard() {
             ${loggedFieldHTML}
             ${timeFieldHTML}
         </div>
+        <button class="edit-current-ex-btn restart-set-btn" onclick="restartFromReview()">⟲ Restart This Set</button>
         <div class="set-btn-row">
-            <button class="back-set-btn" onclick="reviewStepBack()" ${canGoBack ? '' : 'disabled'}>‹</button>
+            <button class="back-set-btn" onclick="${atFirstSet ? 'cancelWorkoutFromReview()' : 'reviewStepBack()'}">${atFirstSet ? '✕' : '‹'}</button>
             <button class="next-set-btn" onclick="reviewStepForward()">Resume ▶</button>
         </div>
     `;

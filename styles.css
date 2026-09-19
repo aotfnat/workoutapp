@@ -1,8 +1,8 @@
 /* ── styles.css ── iPhone-optimised PWA ──────────────────────────── */
-/* Version 11.2; SOC: Added .restart-set-btn (orange variant of the
-   edit-current-ex-btn, used by the new "Restart This Set" button) and
-   .review-fields (editable weight/reps/watts/time inputs shown by the
-   Back-button review screen). */
+/* Version 11.2.1; SOC: no new selectors needed — .restart-set-btn (added in
+   11.2) is now used on the review-mode card instead of the live card, and
+   .ex-lib-results/.ex-lib-result-btn (existing, from the main exercise
+   form) are reused for the new per-circuit-exercise library search. */
 
 /* ── Reset & base ──────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
